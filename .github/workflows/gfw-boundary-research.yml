@@ -1,0 +1,108 @@
+name: Temporary GFW boundary research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gfw-boundary-research.yml
+
+permissions:
+  contents: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/meratus-boundaries-20260822
+          fetch-depth: 0
+      - name: Query WRI GFW legacy Indonesia oil palm layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-output
+          cat > /tmp/query_gfw.py <<'PY'
+          import json, re, ssl, urllib.parse, urllib.request
+          from pathlib import Path
+          from collections import Counter
+
+          BASE='https://gfw-staging.wri.org/arcgis/rest/services/country_data/asia/MapServer/2'
+          TARGETS={
+            'bsg':['BAGUS SENTOSA GEMILANG'],
+            'thm1':['TRI H.M 1','TRI HM 1','TRI H M 1'],
+            'thm2':['TRI H.M 2','TRI HM 2','TRI H M 2'],
+            'lar':['LESTARI ALAM RAYA'],
+            'sum':['SUMATERA UNGGUL MAKMUR','SUMATRA UNGGUL MAKMUR'],
+          }
+          UA={'User-Agent':'MERATUS-boundary-research/1.0'}
+          ctx=ssl.create_default_context()
+
+          def get_json(url, params=None, timeout=180):
+              if params:
+                  url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
+              req=urllib.request.Request(url,headers=UA)
+              with urllib.request.urlopen(req,timeout=timeout,context=ctx) as r:
+                  return json.loads(r.read().decode('utf-8')), r.geturl(), r.status
+
+          def norm(v):
+              s=str(v or '').upper()
+              s=re.sub(r'\bPT\.?\b',' ',s)
+              s=re.sub(r'[^A-Z0-9]+',' ',s)
+              return ' '.join(s.split())
+
+          report={'sourceUrl':BASE,'errors':[],'fields':[],'recordCount':None,'matches':{}}
+          out=[]
+          try:
+              meta,meta_url,status=get_json(BASE,{'f':'pjson'})
+              report['metadataUrl']=meta_url
+              report['metadataStatus']=status
+              report['layerName']=meta.get('name')
+              report['geometryType']=meta.get('geometryType')
+              report['spatialReference']=meta.get('extent',{}).get('spatialReference')
+              report['fields']=[{'name':f.get('name'),'alias':f.get('alias'),'type':f.get('type')} for f in meta.get('fields',[])]
+              oid=meta.get('objectIdField') or meta.get('objectIdFieldName') or 'OBJECTID'
+              ids,ids_url,_=get_json(BASE+'/query',{'where':'1=1','returnIdsOnly':'true','f':'json'})
+              object_ids=ids.get('objectIds') or []
+              report['recordCount']=len(object_ids)
+              report['objectIdField']=ids.get('objectIdFieldName') or oid
+              seen=set()
+              for i in range(0,len(object_ids),250):
+                  batch=object_ids[i:i+250]
+                  gj,qurl,qstatus=get_json(BASE+'/query',{
+                      'objectIds':','.join(map(str,batch)),
+                      'outFields':'*','returnGeometry':'true','outSR':'4326','f':'geojson'
+                  })
+                  for feat in gj.get('features',[]):
+                      props=feat.get('properties') or {}
+                      combined=' | '.join(str(v) for v in props.values() if v not in (None,''))
+                      nv=norm(combined)
+                      matched=[]
+                      for did,aliases in TARGETS.items():
+                          if any(norm(a) in nv for a in aliases): matched.append(did)
+                      for did in matched:
+                          key=(did,props.get(oid) or props.get('OBJECTID') or props.get('objectid'))
+                          if key in seen: continue
+                          seen.add(key)
+                          out.append({
+                              'type':'Feature',
+                              'properties':{**props,'_researchDossierId':did,'_researchQueryUrl':qurl},
+                              'geometry':feat.get('geometry')
+                          })
+              report['matches']=dict(Counter(f['properties']['_researchDossierId'] for f in out))
+          except Exception as e:
+              report['errors'].append(repr(e))
+          Path('research-output/gfw_staging_matches.geojson').write_text(json.dumps({'type':'FeatureCollection','features':out},ensure_ascii=False,indent=2)+'\n')
+          Path('research-output/gfw_staging_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/query_gfw.py
+      - name: Persist research result
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add research-output/gfw_staging_matches.geojson research-output/gfw_staging_report.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore: persist GFW staging boundary research'
+          git push origin HEAD:research/meratus-boundaries-20260822
