@@ -14,6 +14,9 @@ targets={
   'thm2':['TRI H.M 2','TRI HM 2','TRI H M 2'], 'lar':['LESTARI ALAM RAYA'],
   'sum':['SUMATERA UNGGUL MAKMUR','SUMATRA UNGGUL MAKMUR']
 }
+mining_ids=['kideco','kpc','agm','bre','adaro']
+pbph_ids=['dwima','kiani']
+palm_ids=['bsg','thm1','thm2','lar','sum']
 
 def get_bytes(url, params=None, timeout=120):
     if params: url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
@@ -31,50 +34,50 @@ def norm(s):
     s=re.sub(r'[^A-Z0-9]+',' ',s)
     return ' '.join(s.split())
 
-report={'big':{'service':None,'layers':[],'errors':[]},'gfw':{'errors':[],'files':[]}}
+def query_big(layer_id, field, did):
+    lurl=f'https://kspservices.big.go.id/satupeta/rest/services/PUBLIK/PERIZINAN_DAN_PERTANAHAN/MapServer/{layer_id}'
+    out=[]
+    for alias in targets[did]:
+        needle=alias.replace("'", "''").upper()
+        where=f"UPPER({field}) LIKE '%{needle}%'"
+        gj,qfinal,qstatus,_=get_json(lurl+'/query',{
+          'where':where,'outFields':'*','returnGeometry':'true','outSR':'4326','f':'geojson'
+        })
+        for feat in gj.get('features',[]):
+            props=feat.get('properties') or {}
+            val=str(props.get(field,'') or '')
+            if norm(alias) not in norm(val): continue
+            feat['_research']={'dossierId':did,'layerId':layer_id,'queryField':field,'queryUrl':qfinal}
+            out.append(feat)
+    # de-duplicate exact source features returned by alias variants
+    uniq=[]; seen=set()
+    for f in out:
+        k=json.dumps([f.get('properties'),f.get('geometry')],sort_keys=True,ensure_ascii=False)
+        if k not in seen: seen.add(k); uniq.append(f)
+    return uniq
 
-# BIG Kebijakan Satu Peta: inspect every public polygon layer and search all text fields.
-big='https://kspservices.big.go.id/satupeta/rest/services/PUBLIK/PERIZINAN_DAN_PERTANAHAN/MapServer'
-try:
-    root,final,status,ctype=get_json(big,{'f':'pjson'})
-    report['big']['service']={'url':final,'status':status,'currentVersion':root.get('currentVersion'),'layers':root.get('layers',[])}
-    all_features=[]
-    for layer in root.get('layers',[]):
-        lid=layer['id']; lname=layer.get('name',''); lurl=f'{big}/{lid}'
-        try:
-            meta,mfinal,mstatus,_=get_json(lurl,{'f':'pjson'})
-            fields=[f for f in meta.get('fields',[]) if f.get('type')=='esriFieldTypeString']
-            li={'id':lid,'name':lname,'url':mfinal,'geometryType':meta.get('geometryType'),'fields':[f['name'] for f in fields],'matches':{}}
-            report['big']['layers'].append(li)
-            if meta.get('geometryType')!='esriGeometryPolygon': continue
-            for did,aliases in targets.items():
-                seen=set(); matched=[]
-                for field in fields:
-                    fname=field['name']
-                    for alias in aliases:
-                        where=f"UPPER({fname}) LIKE '%{alias.replace(chr(39),chr(39)*2).upper()}%'"
-                        try:
-                            gj,qfinal,qstatus,_=get_json(lurl+'/query',{'where':where,'outFields':'*','returnGeometry':'true','outSR':'4326','f':'geojson'})
-                        except Exception:
-                            continue
-                        for feat in gj.get('features',[]):
-                            props=feat.get('properties') or {}
-                            vals=' | '.join(str(v) for v in props.values() if v is not None)
-                            if not any(norm(a) in norm(vals) for a in aliases): continue
-                            key=json.dumps([props,feat.get('geometry')],sort_keys=True,ensure_ascii=False)
-                            if key in seen: continue
-                            seen.add(key)
-                            feat['_research']={'dossierId':did,'layerId':lid,'layerName':lname,'queryField':fname,'queryUrl':qfinal}
-                            matched.append(feat); all_features.append(feat)
-                if matched: li['matches'][did]=len(matched)
-        except Exception as e:
-            report['big']['errors'].append({'layer':lid,'name':lname,'error':repr(e)})
-    with open(os.path.join(OUT,'big_matches.geojson'),'w',encoding='utf-8') as f:
-        json.dump({'type':'FeatureCollection','features':all_features},f,ensure_ascii=False)
-except Exception as e:
-    report['big']['errors'].append({'service':big,'error':repr(e)})
+report={'big':{'errors':[],'matches':{}},'gfw':{'errors':[],'files':[],'matches':{}}}
+all_big=[]
+# BIG WIUP mining layer 4: operator field nmoprt.
+for did in mining_ids:
+    try:
+        fs=query_big(4,'nmoprt',did); report['big']['matches'][did]=len(fs); all_big.extend(fs)
+    except Exception as e: report['big']['errors'].append({'dossierId':did,'layer':4,'error':repr(e)})
+# BIG forestry permit layers: display field namobj.
+for did in pbph_ids:
+    found=[]
+    for lid in (1,2,3):
+        try: found.extend(query_big(lid,'namobj',did))
+        except Exception as e: report['big']['errors'].append({'dossierId':did,'layer':lid,'error':repr(e)})
+    uniq=[]; seen=set()
+    for f in found:
+        k=json.dumps([f.get('properties'),f.get('geometry')],sort_keys=True,ensure_ascii=False)
+        if k not in seen: seen.add(k); uniq.append(f)
+    report['big']['matches'][did]=len(uniq); all_big.extend(uniq)
+with open(os.path.join(OUT,'big_matches.geojson'),'w',encoding='utf-8') as f:
+    json.dump({'type':'FeatureCollection','features':all_big},f,ensure_ascii=False)
 
-# GFW/WRI legacy oil-palm concession archive.
+# GFW/WRI Indonesia oil-palm concession archive from metadata Direct Download.
 gfw='https://gfw2-data.s3.amazonaws.com/country/idn/zip/idn_oil_palm.zip'
 try:
     b,final,status,ctype=get_bytes(gfw,timeout=180)
@@ -88,11 +91,10 @@ try:
         report['gfw']['files'].append({'shp':os.path.relpath(shp,ex),'records':len(r),'fields':fnames})
         for sr in r.iterShapeRecords():
             props=dict(zip(fnames,sr.record)); vals=' | '.join(str(v) for v in props.values() if v not in (None,'')); nv=norm(vals)
-            dids=[did for did,aliases in targets.items() if did in {'bsg','thm1','thm2','lar','sum'} and any(norm(a) in nv for a in aliases)]
-            if not dids: continue
-            gi=sr.shape.__geo_interface__
-            for did in dids:
-                gfw_features.append({'type':'Feature','properties':{**props,'_researchDossierId':did,'_researchSourceFile':os.path.relpath(shp,ex)},'geometry':gi})
+            for did in palm_ids:
+                if any(norm(a) in nv for a in targets[did]):
+                    gfw_features.append({'type':'Feature','properties':{**props,'_researchDossierId':did,'_researchSourceFile':os.path.relpath(shp,ex)},'geometry':sr.shape.__geo_interface__})
+    for did in palm_ids: report['gfw']['matches'][did]=sum(1 for f in gfw_features if f['properties']['_researchDossierId']==did)
     with open(os.path.join(OUT,'gfw_matches.geojson'),'w',encoding='utf-8') as f:
         json.dump({'type':'FeatureCollection','features':gfw_features},f,ensure_ascii=False)
 except Exception as e:
