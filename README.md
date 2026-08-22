@@ -29,3 +29,7 @@ Lihat `data/README.txt` untuk skema.
 ## Catatan bukti
 
 Deteksi satelit ≠ kebakaran terverifikasi. Hotspot di konsesi (klaim WALHI) ≠ tuduhan pembakaran. Ikatan politik = sumber publik (jabatan/kampanye/kekerabatan), bukan atribusi api.
+
+Metodologi lengkap pengumpulan data: [`docs/methodology.md`](docs/methodology.md).
+
+Instruksi untuk AI agent (update/lengkapi data): [`agent.md`](agent.md).

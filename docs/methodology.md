@@ -1,0 +1,360 @@
+# Metodologi pengumpulan data — MERATUS
+
+Dokumen ini menjelaskan **dari mana** setiap lapisan data di dashboard berasal, **bagaimana** data itu dikumpulkan dan disaring, **apa yang tidak diklaim**, dan **bagaimana memperbarui** data di masa depan.
+
+Versi dashboard: artefak di repositori `fire-tracker` (vanilla HTML + JSON). Istilah teknis merujuk ke [`glossary.md`](glossary.md) dan ADR di [`adr/`](adr/).
+
+---
+
+## 1. Tujuan dan ruang lingkup
+
+MERATUS memetakan gelombang karhutla di Kalimantan (Agustus 2026 dan konteks Jan–Jul 2026) dengan tiga pertanyaan navigasi:
+
+1. Di mana deteksi termal satelit (hotspot) muncul?
+2. Konsesi mana yang dilaporkan organisasi masyarakat sipil memiliki hotspot tinggi di dalamnya?
+3. Siapa pengendali korporasi yang bisa dikutip dari sumber terbuka, dan apa ikatan politik publik yang terkait?
+
+Dashboard **bukan** sistem atribusi pidana, bukan sistem verifikasi lapangan, dan bukan join GIS resmi FIRMS × poligon HGU/IUP.
+
+---
+
+## 2. Empat lapisan bukti (wajib terpisah)
+
+Setiap klaim di UI harus tetap berada di lapisannya. Lihat [`adr/001-evidence-layers.md`](adr/001-evidence-layers.md).
+
+| Lapisan | Artefak data | Apa artinya | Apa yang *bukan* |
+|--------|--------------|-------------|------------------|
+| **Detection** | `data/firms.json` (atau fallback SIPONGI) | Anomali suhu satelit / ringkasan hotspot resmi | Kebakaran terverifikasi lapangan; pelaku |
+| **ConcessionClaim** | `data/dossiers.json` → `walhiHotspots`, `walhiSummary` | Klaim overlay WALHI (agregat periode Jan–Jul 2026) | Join live titik FIRMS 7 hari ke poligon konsesi |
+| **Control** | `dossiers[].control`, `uboStatus` | Grup/UBO dari sumber publik bernama | Spekulasi pemilik tanpa kutipan |
+| **PoliticalTie** | `dossiers[].politicalTies` | Jabatan partai, kampanye, kekerabatan, kabinet | “Parpol membakar hutan” |
+
+Tepi graf di UI berlabel `KLAIM_OVERLAY` / `KONTROL` / `IKATAN` agar relasi tidak dibaca sebagai satu fakta tunggal. Framing lensa politik: [`adr/002-campaign-framing.md`](adr/002-campaign-framing.md).
+
+---
+
+## 3. Lapisan Detection — NASA FIRMS
+
+### 3.1 Sumber primer
+
+- **Produk:** NASA FIRMS *Suomi-NPP VIIRS C2*, near-real-time, wilayah **South East Asia**, jendela **7 hari**.
+- **Endpoint publik (tanpa MAP_KEY):**  
+  `https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_SouthEast_Asia_7d.csv`
+- **Mengapa bukan Google Maps Embed:** lapisan api di peta Google umumnya bertumpu pada deteksi FIRMS/sejenis; Embed membutuhkan API key dan tidak cocok untuk alur OSINT/self-host. MERATUS memakai sumber FIRMS langsung.
+
+### 3.2 Pipeline pengumpulan (snapshot yang di-commit)
+
+1. Unduh CSV SEA 7 hari.
+2. Parse baris deteksi (latitude, longitude, bright_ti4/ti5, FRP, tanggal, waktu, satelit, confidence, day/night).
+3. **Filter spasial Kalimantan Indonesia:**
+   - Bounding box kasar pulau (~108.8°E–119.3°E, ~4.3°S–7.4°N).
+   - **Keluarkan** kotak Sarawak/Sabah (Malaysia) agar titik di wilayah Malaysia tidak masuk agregat Indonesia.
+4. Normalisasi confidence ke label UI: `low` / `nominal` / `high`.
+5. Tulis `data/firms.json`:
+
+```json
+{
+  "meta": {
+    "source": "NASA FIRMS Suomi-NPP VIIRS C2 SouthEast Asia 7-day CSV",
+    "url": "…",
+    "fetched": "YYYY-MM-DD",
+    "filter": "Kalimantan Indonesia province AABBs; Sarawak/Sabah excluded",
+    "count": 20500
+  },
+  "points": [
+    {
+      "lat": -2.19013,
+      "lon": 112.68287,
+      "b4": 344.34,
+      "b5": 293.47,
+      "frp": 4.04,
+      "date": "2026-08-14",
+      "time": "0642",
+      "sat": "N",
+      "conf": "nominal",
+      "dn": "D"
+    }
+  ]
+}
+```
+
+### 3.3 Snapshot yang dipakai di dashboard awal
+
+| Metrik | Nilai (meta repositori) |
+|--------|-------------------------|
+| Tanggal fetch | 2026-08-21 |
+| Jumlah titik setelah filter | 20.500 |
+| Confidence | high 905 · nominal 18.915 · low 680 |
+| Rentang tanggal di file | ~2026-08-14 … 2026-08-20 |
+
+Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agustus (produk & ambang berbeda — lihat §4).
+
+### 3.4 Cara dibaca di UI
+
+- Titik digabung cluster (Leaflet.markercluster) karena volume besar.
+- Scrubber waktu memfilter per `date`.
+- Filter `Keyakinan FIRMS` memotong `conf`.
+- Klik titik → inspector Detection saja; “konsesi terdekat” dihitung jarak ke **centroid dossier** (kasar), dengan label eksplisit **bukan join GIS**.
+
+### 3.5 Batasan FIRMS
+
+- Hotspot = kandidat termal; bisa jadi api kecil, industri, atau false positive.
+- Resolusi VIIRS (~375 m) tidak mencerminkan batas legal konsesi.
+- CSV 7 hari publik bergulir; tanpa regenerate, dashboard menampilkan **snapshot** yang di-commit, bukan live NASA.
+- Tidak ada koreksi asap/awan di sisi MERATUS.
+
+### 3.6 Cara memperbarui
+
+1. Unduh ulang CSV FIRMS SEA 7d.
+2. Ulangi filter Kalimantan ID.
+3. Timpa `data/firms.json` (`meta.fetched`, `meta.count`, `points`).
+4. Commit & push (GitHub Pages akan men-deploy ulang).
+
+Opsional nanti: GitHub Action cron yang menjalankan langkah di atas otomatis.
+
+---
+
+## 4. Lapisan konteks resmi — SIPONGI / Kemenhut (fallback & narasi gelombang)
+
+### 4.1 Fungsi di produk
+
+- **Narasi gelombang Agustus 2026** di panel Temuan / stempel (bukan pengganti peta titik kecuali fallback).
+- **Fallback UI:** jika `data/firms.json` gagal dimuat atau `points` kosong, UI mensintesis titik sebaran kasar dari `sipongiFallback.daily` (bukan lokasi satelit sebenarnya).
+
+### 4.2 Sumber yang dikutip
+
+Ringkasan di `dossiers.json` → `sipongiFallback` merangkum pemberitaan & rilis berbasis SIPONGI (NASA-MODIS/Terra-Aqua *high confidence* menurut Kemenhut), periode **17–19 Agustus 2026**:
+
+| Agregat | Angka |
+|---------|------:|
+| Total high confidence (Kalbar+Kalteng+Kalsel) | 750 |
+| Kalimantan Barat | 367 |
+| Kalimantan Tengah | 343 |
+| Kalimantan Selatan | 40 |
+| Lonjakan 19 Agu (satu hari) | 518 |
+
+Sumber URL tersimpan di `sipongiFallback.sources` (contoh: rilis Kemenhut operasi terpadu; Kompas 21 Agu 2026 tentang 750 hotspot).
+
+### 4.3 Mengapa dua angka (FIRMS 7d vs SIPONGI 3 hari) tidak digabung
+
+- Sensor/produk berbeda (VIIRS NRT CSV vs pelaporan SIPONGI berbasis MODIS high confidence).
+- Ambang confidence dan jendela waktu berbeda.
+- MERATUS menampilkan keduanya sebagai konteks, **tidak** merekonsiliasi menjadi satu time series resmi.
+
+---
+
+## 5. Lapisan ConcessionClaim — WALHI (Jan–Jul 2026)
+
+### 5.1 Sumber primer
+
+Analisis spasial **Wahana Lingkungan Hidup Indonesia (WALHI)** yang dilaporkan media, periode pantauan **1 Januari – 27 Juli 2026** (agregat pulau Kalimantan). Kutipan utama yang dipakai di `walhiSummary.sources`:
+
+- Kompas.id — ~74% hotspot di kawasan konsesi.
+- Detik / liputan daerah — ranking perusahaan per sektor.
+
+Angka ringkas yang di-embed:
+
+| Metrik | Nilai |
+|--------|------:|
+| Hotspot Kalimantan | 34.262 |
+| Di dalam konsesi | 25.524 (~74%) |
+| Di HGU sawit | 10.739 |
+| Di konsesi tambang | 7.880 |
+| Di PBPH | 6.905 |
+
+### 5.2 Seleksi 12 dossier
+
+Dashboard **tidak** mengimpor 34 ribu titik WALHI. Yang diambil adalah **12 konsesi dengan hotspot tertinggi** yang disebut berulang di liputan WALHI, dibagi sektor:
+
+**Tambang**
+
+| ID | Perusahaan | Hotspot (klaim WALHI) |
+|----|------------|----------------------:|
+| `kideco` | PT Kideco Jaya Agung | 1.116 |
+| `kpc` | PT Kaltim Prima Coal | 863 |
+| `agm` | PT Antang Gunung Meratus | 840 |
+| `bre` | PT Bhumi Rantau Energi | 618 |
+| `adaro` | PT Adaro Indonesia | 355 |
+
+**PBPH**
+
+| ID | Perusahaan | Hotspot |
+|----|------------|--------:|
+| `dwima` | PT Dwima Intiga | 866 |
+| `kiani` | PT Kiani Lestari | 707 |
+
+**Sawit (HGU)**
+
+| ID | Perusahaan | Hotspot |
+|----|------------|--------:|
+| `bsg` | PT Bagus Sentosa Gemilang | 637 |
+| `thm1` | PT Tri H.M 1 | 573 |
+| `thm2` | PT Tri H.M 2 | 573 |
+| `lar` | PT Lestari Alam Raya | 469 |
+| `sum` | PT Sumatera Unggul Makmur | 280 |
+
+### 5.3 Centroid lokasi
+
+Setiap dossier punya `centroid: [lat, lon]` untuk navigasi peta/marker. Centroid disusun dari **lokasi operasi yang dipublikasikan** (situs perusahaan, GEM Wiki, pemberitaan lokasi tambang/HTI), **bukan** dari centroid poligon HGU resmi.
+
+Caveat di UI: centroid kasar untuk navigasi; tanpa `boundaries.geojson` tidak ada batas lahan.
+
+### 5.4 Apa yang tidak dilakukan
+
+- Tidak ada unduhan shapefile HGU/IUP resmi ke dalam repo pada rilis awal.
+- Tidak ada intersect FIRMS 7 hari × poligon konsesi.
+- Angka `walhiHotspots` **tidak** dihitung ulang dari `firms.json`; angka itu milik klaim WALHI Jan–Jul.
+
+---
+
+## 6. Lapisan Control (UBO / grup) dan PoliticalTie
+
+### 6.1 Metode OSINT
+
+Untuk tiap dari 12 perusahaan:
+
+1. Mulai dari nama konsesi di liputan WALHI.
+2. Cari **pemegang saham / grup induk** di laporan keuangan, keterbukaan IDX, situs perusahaan, atau investigasi jurnalistik bernama.
+3. Catat orang kunci (direksi, keluarga pengendali) hanya jika muncul di sumber.
+4. Cari **ikatan politik yang bisa dikutip**: jabatan partai, peran kampanye resmi, kekerabatan elite yang diliput, peran kabinet — bukan rumor forum.
+5. Setiap ikatan mendapat `confidence` (`tinggi` / `sedang` / …) dan `sources[]`.
+6. Jika tidak terkunci → status eksplisit:
+   - `uboStatus: "UNKNOWN"`
+   - `politicalStatus: "TIDAK TERPETAKAN"`
+   - Jangan mengarang grup atau partai.
+
+### 6.2 Ringkasan status bukti (rilis awal)
+
+| Status | Konsesi |
+|--------|---------|
+| UBO `KNOWN` + ada ikatan politik dikutip | Kideco (Indika / Lasmono–Arsjad), KPC (Bakrie / Golkar), Adaro (Thohir / ikatan kabinet) |
+| UBO `KNOWN`, parpol `TIDAK TERPETAKAN` | Antang Gunung Meratus (BSSR / Wahana Sentosa; UBO Ghan Djoe Hiang), Bhumi Rantau Energi (sumber grup masih longgar), Dwima Intiga (Dwima Group) |
+| UBO `CAVEAT` + ikatan Gerindra/historis | Kiani Lestari — pembelian historis terkait Prabowo (JK 2024) **dan** caveat The Gecko Project (2024) bahwa operasional izin bisa tidak dipegang entitas yang sama |
+| UBO `UNKNOWN` + parpol tidak terpetakan | Bagus Sentosa Gemilang, Tri H.M 1/2, Lestari Alam Raya, Sumatera Unggul Makmur |
+
+Jenis ikatan yang diizinkan di data: `kekerabatan`, `jabatan_partai`, `peran_kampanye`, `kabinet` / koalisi — sesuai field `politicalTies[].type`.
+
+### 6.3 Framing (ADR 002)
+
+Ikatan politik adalah **lensa navigasi** (filter partai, hub graf, panel Temuan), bukan bukti penyebab api. Copy UI wajib memuat disclaimer bahwa hotspot di konsesi ≠ perusahaan menyulut api.
+
+---
+
+## 7. Lapisan batas lahan — `boundaries.geojson`
+
+### 7.1 Status saat dokumentasi ini ditulis
+
+`data/boundaries.geojson` adalah FeatureCollection **kosong** (`features: []`). Fitur peta (poligon, toggle region, `fitBounds`) sudah ada; **geometri belum diisi**.
+
+### 7.2 Metode yang direncanakan untuk mengisi
+
+1. Ekspor poligon dari GIS (QGIS) / shapefile HGU–IUP–PBPH / GeoJSON pihak ketiga berlisensi jelas.
+2. Pastikan CRS **WGS84** (lon, lat).
+3. Setiap Feature:
+
+```json
+{
+  "type": "Feature",
+  "properties": {
+    "dossierId": "sum",
+    "name": "PT Sumatera Unggul Makmur",
+    "quality": "OFFICIAL",
+    "source": "uraian sumber",
+    "sourceUrl": "https://…"
+  },
+  "geometry": { "type": "Polygon", "coordinates": [ … ] }
+}
+```
+
+4. `dossierId` harus cocok dengan `dossiers[].id`.
+5. `quality`: `OFFICIAL` | `GFW` | `PERKIRAAN` (UI memakai gaya garis putus untuk perkiraan).
+
+### 7.3 Percobaan otomatis yang gagal / tidak dipakai
+
+- Query mirror BNPB GFW oil palm → HTTP 403.
+- Query WRI ArcGIS commodities → timeout.
+- Karena itu MERATUS **tidak** mengklaim poligon publik otomatis pada rilis awal.
+
+Jangan mengisi poligon “dummy” yang tampak resmi.
+
+---
+
+## 8. Arsitektur penyajian data
+
+Lihat [`adr/003-single-html.md`](adr/003-single-html.md).
+
+| File | Peran |
+|------|--------|
+| `index.html` | UI Palantir-style; `fetch` JSON |
+| `data/firms.json` | Detection |
+| `data/dossiers.json` | WALHI summary, SIPONGI fallback, 12 dossier |
+| `data/boundaries.geojson` | Region konsesi (opsional) |
+| `data/README.txt` | Skema singkat untuk editor data |
+
+Alur runtime:
+
+1. Browser memuat `index.html` lewat HTTP (lokal atau GitHub Pages).
+2. `fetch("data/firms.json")`, `fetch("data/dossiers.json")`, `fetch("data/boundaries.geojson")` dengan `cache: "no-store"`.
+3. Jika FIRMS gagal → sintesis fallback SIPONGI.
+4. Jika boundaries kosong → hanya centroid.
+
+Tidak ada backend, database, atau API key Google pada rilis ini.
+
+---
+
+## 9. Kontrol kualitas dan anti-klaim berlebih
+
+Checklist sebelum menambah klaim baru ke `dossiers.json`:
+
+1. Ada **URL sumber bernama** di `sources` atau `politicalTies[].sources`?
+2. Apakah klaim masuk lapis yang benar (Detection vs ConcessionClaim vs Control vs PoliticalTie)?
+3. Apakah UI/copy masih menghindari vonis pidana?
+4. Untuk Kiani: caveat Gecko masih ada?
+5. Untuk sawit tanpa UBO: tetap `UNKNOWN`, jangan isi grup dari tebakan nama PT?
+6. Untuk geometri: `quality` dan `source` diisi jujur?
+
+---
+
+## 10. Keterbatasan keseluruhan
+
+1. **Dua periode berbeda:** FIRMS snapshot ~7 hari Agustus vs WALHI Jan–Jul — tidak di-overlay sebagai bukti spasial yang sama.
+2. **Tanpa poligon resmi** pada rilis awal → tidak ada densitas hotspot per hektare konsesi di dalam produk.
+3. **Dossier curated 12 PT** → bukan sensus seluruh pemegang izin Kalimantan.
+4. **OSINT politik selektif** → banyak tautan elite tidak masuk karena tidak ada sumber yang memenuhi ambang.
+5. **Fallback SIPONGI** menyebar titik secara sintetis di sekitar pusat provinsi — hanya untuk menjaga kanvas hidup, bukan lokasi akurat.
+6. **Lisensi data pihak ketiga** (FIRMS, liputan media, kelak GFW/HGU) harus dihormati saat redistribusi massal.
+
+---
+
+## 11. Cara mereplikasi pengumpulan (ringkas)
+
+```text
+A. FIRMS
+   unduh CSV SEA 7d → filter bbox Kalimantan ID → buang MY → tulis data/firms.json
+
+B. WALHI dossier
+   baca liputan WALHI Jan–Jul 2026 → ambil 12 nama + angka hotspot → isi dossiers[]
+
+C. Control / politik
+   IDX / annual report / investigasi bernama → isi control + politicalTies atau UNKNOWN
+
+D. SIPONGI konteks
+   rilis Kemenhut + liputan 17–19 Agu → isi sipongiFallback
+
+E. Boundaries (belum)
+   dapatkan poligon berlisensi → properties.dossierId → data/boundaries.geojson
+```
+
+---
+
+## 12. Referensi internal
+
+- [`glossary.md`](glossary.md) — istilah domain
+- [`adr/001-evidence-layers.md`](adr/001-evidence-layers.md) — empat lapisan
+- [`adr/002-campaign-framing.md`](adr/002-campaign-framing.md) — lensa politik
+- [`adr/003-single-html.md`](adr/003-single-html.md) — distribusi JSON
+- [`../data/README.txt`](../data/README.txt) — skema file data
+
+---
+
+*Dokumen ini mendeskripsikan metodologi yang dipakai membangun dataset awal MERATUS. Pembaruan data di masa depan harus mengikuti lapisan bukti yang sama; jika metodologi berubah, revisi file ini dan catat tanggal di commit.*
