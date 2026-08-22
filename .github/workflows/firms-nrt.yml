@@ -1,0 +1,135 @@
+name: Refresh FIRMS NRT
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish data and deploy Pages; only honored on main"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: firms-nrt
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    outputs:
+      should_publish: ${{ steps.publish-mode.outputs.should_publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Determine publish mode
+        id: publish-mode
+        env:
+          SHOULD_PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish == true) }}
+        run: echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
+
+      # Pull requests must be deterministic. Do not make mergeability depend on
+      # NASA/network availability; live FIRMS checks remain schedule/manual-only.
+      - name: Validate FIRMS pipeline offline
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m py_compile scripts/ingest_firms.py
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for path in (
+              Path("data/firms.json"),
+              Path("data/dossiers.json"),
+              Path("data/boundaries.geojson"),
+              Path("data/kalimantan-indonesia.geojson"),
+          ):
+              with path.open(encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"validated {path}")
+
+          html = Path("index.html").read_text(encoding="utf-8")
+          assert 'boundary.qualities.indexOf(state.boundary)' in html
+          assert 'boundaryStatus(d).key !== state.boundary' not in html
+          print("validated boundary-quality filter wiring")
+          PY
+
+      - name: Fetch and validate FIRMS
+        id: ingest
+        if: github.event_name != 'pull_request'
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          set +e
+          python scripts/ingest_firms.py
+          result=$?
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Commit dataset or pipeline status
+        if: github.event_name != 'pull_request'
+        env:
+          SHOULD_PUBLISH: ${{ steps.publish-mode.outputs.should_publish }}
+        run: |
+          if [ "$SHOULD_PUBLISH" != "true" ]; then
+            echo "Validation-only live run: no commit, push, or production Pages deploy."
+            git status --short
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/firms.json data/firms-status.json
+          if [ -d archive/firms ]; then git add archive/firms; fi
+          if git diff --cached --quiet; then
+            echo "No FIRMS or status changes to publish."
+          else
+            git commit -m "chore(data): refresh FIRMS NRT dataset"
+            git push origin HEAD:main
+          fi
+
+      # Upload the exact workspace that was committed above. These steps use
+      # always() so a stale firms-status.json is still published when ingestion
+      # failed; the job is marked failed only after the Pages artifact exists.
+      - name: Configure GitHub Pages
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload refreshed Pages artifact
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Surface ingestion failure
+        if: ${{ always() && github.event_name != 'pull_request' && steps.ingest.outputs.result != '0' }}
+        run: exit 1
+
+  deploy:
+    needs: ingest
+    if: ${{ always() && needs.ingest.outputs.should_publish == 'true' }}
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy refreshed Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

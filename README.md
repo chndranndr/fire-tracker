@@ -16,15 +16,22 @@ Lebih aman untuk file besar: server threaded
 python -c "from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(('127.0.0.1', 8765), SimpleHTTPRequestHandler).serve_forever()"
 ```
 
-## Data (edit manual)
+## Data
 
 | File | Isi |
 |------|-----|
 | `data/firms.json` | Titik FIRMS (`meta` + `points`) |
+| `data/firms-status.json` | Status pipeline NRT; dataset lama dipertahankan jika ingest gagal |
 | `data/dossiers.json` | 12 dossier + ringkasan WALHI + fallback SIPONGI |
 | `data/boundaries.geojson` | Poligon batas konsesi (`properties.dossierId`) |
 
 Lihat `data/README.txt` untuk skema.
+
+### Refresh FIRMS NRT
+
+GitHub Actions menjalankan [`firms-nrt.yml`](.github/workflows/firms-nrt.yml) setiap jam. Workflow membutuhkan repository secret `FIRMS_MAP_KEY` dari NASA FIRMS, mengambil VIIRS S-NPP, NOAA-20, dan NOAA-21, lalu memvalidasi dan mendeduplikasi observation secara deterministik.
+
+Jika fetch gagal, salah satu platform kosong, atau jumlah titik turun secara mencurigakan per platform, workflow hanya memperbarui `data/firms-status.json` dengan status `stale`; `data/firms.json` terakhir yang valid tidak ditimpa. Setelah ingest sukses, workflow yang sama melakukan deploy Pages karena push data memakai `GITHUB_TOKEN` tidak memicu workflow Pages terpisah.
 
 ## Catatan bukti
 

@@ -38,17 +38,22 @@
     /* === Shell layout === */
     .app {
       display: grid;
-      grid-template-rows: 40px 1fr 52px;
+      grid-template-rows: 48px minmax(0, 1fr) 52px;
       height: 100%;
       min-height: 100vh;
     }
     .topbar {
-      display: flex; align-items: center; gap: 16px;
-      padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+      display: flex; align-items: center; gap: 12px;
+      min-width: 0; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel);
     }
     .callsign { font-weight: 700; letter-spacing: 0.12em; color: var(--amber); font-size: 16px; }
-    .stamp { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+    .stamp { min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
     .stamp strong { color: var(--text); font-weight: 500; }
+    .header-state { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+    .header-stats, .header-freshness { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .header-freshness { color: var(--muted); }
+    .header-freshness[data-status="delayed"], .header-freshness[data-status="stale"] { color: var(--warn); }
+    .header-freshness[data-status="fallback"] { color: var(--amber); }
     .mode-toggle { margin-left: auto; display: flex; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); }
     .mode-toggle button {
       background: transparent; border: 0; padding: 6px 14px; cursor: pointer;
@@ -58,8 +63,9 @@
 
     .main {
       display: grid;
-      grid-template-columns: 280px 1fr 320px;
+      grid-template-columns: 260px minmax(0, 1fr) 340px;
       min-height: 0;
+      position: relative;
     }
     .panel {
       background: var(--panel); border-right: 1px solid var(--line);
@@ -67,6 +73,7 @@
     }
     .inspector { border-right: 0; border-left: 1px solid var(--line); }
     .panel-h {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
       padding: 10px 12px 8px; border-bottom: 1px solid var(--line);
       font-weight: 600; letter-spacing: 0.1em; font-size: 12px; color: var(--muted); text-transform: uppercase;
     }
@@ -84,6 +91,20 @@
       background: #0c0c0c; border: 1px solid var(--line); border-radius: var(--radius);
       padding: 6px 8px; font-size: 13px;
     }
+    .filter-primary { margin-bottom: 8px; }
+    .filter-primary label { display: grid; gap: 3px; font-size: 11px; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+    .filter-primary select { width: 100%; background: #0c0c0c; border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 8px; font-size: 13px; }
+    .filter-disclosure { margin: 0 0 12px; border: 1px solid var(--line); background: #0e0e0e; }
+    .filter-disclosure > summary { cursor: pointer; list-style: none; padding: 7px 8px; color: var(--amber); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .filter-disclosure > summary::-webkit-details-marker { display: none; }
+    .filter-disclosure > summary::after { content: "+"; float: right; font-family: var(--font-mono); }
+    .filter-disclosure[open] > summary::after { content: "−"; }
+    .filter-disclosure .filters { padding: 0 8px 8px; margin: 0; }
+    .filter-group-label { padding: 8px 8px 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+    .filter-group-label:first-child { border-top: 0; }
+
+    .dossier-count { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 4px; padding: 0 6px; color: var(--muted); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .dossier-count strong { color: var(--text); font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
 
     /* Temuan */
     .temuan {
@@ -102,13 +123,19 @@
 
     .obj-list { list-style: none; margin: 0; padding: 0; }
     .obj-list li {
-      display: grid; grid-template-columns: 1fr auto; gap: 4px;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
       padding: 8px 6px; border-bottom: 1px solid #1c1c1c; cursor: pointer;
     }
     .obj-list li:hover, .obj-list li.selected { background: #1a1a1a; }
     .obj-list .name { font-weight: 600; font-size: 14px; }
-    .obj-list .meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
-    .obj-list .hot { color: var(--fire); font-family: var(--font-mono); font-size: 12px; }
+    .obj-list .meta { font-family: var(--font-mono); font-size: 10px; color: var(--muted); line-height: 1.35; }
+    .obj-list .hot { color: var(--fire); font-family: var(--font-mono); font-size: 12px; text-align: right; white-space: nowrap; }
+    .obj-list .claim-label { display: block; color: var(--muted); font-family: var(--font-ui); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .boundary-status { display: inline-block; margin-top: 2px; letter-spacing: 0.06em; }
+    .boundary-status.official { color: var(--text); }
+    .boundary-status.gfw { color: #b5a16e; }
+    .boundary-status.approx { color: var(--muted); }
+    .boundary-status.none { color: var(--warn); }
 
     .canvas-wrap { position: relative; min-height: 0; background: #0a0a0a; }
     #map, #graph {
@@ -122,13 +149,29 @@
       background: rgba(18,18,18,0.92); border: 1px solid var(--line); padding: 8px 10px;
       font-size: 11px; letter-spacing: 0.04em; color: var(--muted); pointer-events: none;
     }
-    .legend span { display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; }
+    .legend div { line-height: 1.5; }
+    .legend span { display: inline-block; width: 12px; height: 8px; margin-right: 6px; vertical-align: middle; }
     .legend .fire-dot { background: var(--fire); border-radius: 50%; }
-    .legend .co-dot { background: var(--amber); }
+    .legend .boundary-official { border: 1px solid var(--amber); background: rgba(227, 160, 8, 0.22); }
+    .legend .boundary-gfw { border: 1px dashed var(--amber); background: rgba(227, 160, 8, 0.1); }
+    .legend .boundary-approx { border: 1px dotted var(--amber); background: rgba(227, 160, 8, 0.04); }
+    .legend .boundary-none { border: 1px dashed var(--warn); background: transparent; }
+
+    .findings-banner {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 500;
+      display: flex; align-items: center; gap: 12px; min-height: 42px;
+      padding: 7px 10px; border: 1px solid var(--line); background: rgba(18,18,18,0.94);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+    }
+    .findings-banner .eyebrow { color: var(--amber); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+    .findings-banner strong { color: var(--text); font-family: var(--font-mono); font-weight: 500; white-space: nowrap; }
+    .findings-banner span { color: var(--muted); font-size: 12px; }
+    .findings-banner a { margin-left: auto; font-size: 11px; white-space: nowrap; }
 
     /* Inspector */
     .insp-empty { color: var(--muted); font-size: 14px; padding: 12px 4px; line-height: 1.4; }
     .insp-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: 0.02em; }
+    .insp-subtitle { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
     .insp-id { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-bottom: 10px; }
     .tag {
       display: inline-block; border: 1px solid var(--line); padding: 2px 6px; margin: 0 4px 4px 0;
@@ -140,6 +183,23 @@
     .tag.gerindra { border-color: var(--gerindra); color: var(--gerindra); }
     .tag.warn { border-color: var(--warn); color: var(--warn); }
     .tag.ok { border-color: var(--ok); color: var(--ok); }
+
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 12px; }
+    .summary-card { min-width: 0; padding: 8px; border: 1px solid var(--line); background: #0e0e0e; }
+    .summary-card .label { display: block; color: var(--muted); font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; }
+    .summary-card strong { display: block; margin-top: 4px; color: var(--text); font-family: var(--font-mono); font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+    .summary-card.claim strong { color: var(--fire); font-size: 20px; }
+    .summary-card small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.25; }
+    .details-section { margin-top: 10px; border-top: 1px solid var(--line); }
+    .details-section > summary { cursor: pointer; padding: 8px 0 5px; color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; list-style: none; }
+    .details-section > summary::-webkit-details-marker { display: none; }
+    .details-section > summary::after { content: "▸"; float: right; color: var(--amber); }
+    .details-section[open] > summary::after { content: "▾"; }
+    .details-section .section-content { padding-bottom: 4px; }
+    .tie-card { padding: 7px 8px; margin: 0 0 6px; border-left: 2px solid var(--line); background: #161616; font-size: 12px; line-height: 1.35; }
+    .tie-card strong { color: var(--text); }
+    .tie-card .tie-meta { color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
+    .mobile-close { display: none; background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 3px 7px; cursor: pointer; font-size: 11px; letter-spacing: 0.04em; }
 
     .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 8px; font-size: 13px; margin: 10px 0; }
     .kv dt { color: var(--muted); letter-spacing: 0.04em; }
@@ -186,6 +246,10 @@
       width: 28px; height: 28px; line-height: 28px; text-align: center;
       border-radius: 1px;
     }
+    .concession-fallback-icon {
+      display: grid; place-items: center; width: 26px; height: 26px; border: 1px dashed var(--warn);
+      border-radius: 50%; background: rgba(18,18,18,0.92); color: var(--warn); font-family: var(--font-mono); font-size: 15px;
+    }
     .layer-toggles {
       display: flex; flex-direction: column; gap: 6px;
       margin: 0 0 12px; padding: 8px; border: 1px solid var(--line);
@@ -207,10 +271,10 @@
     }
 
     @media (max-width: 960px) {
-      html, body { overflow-x: hidden; }
+      html, body { overflow: hidden; }
       .app {
-        height: auto; min-width: 0; overflow-x: hidden;
-        grid-template-rows: auto auto clamp(40px, 6vh, 48px);
+        height: 100dvh; min-width: 0; overflow: hidden;
+        grid-template-rows: 48px minmax(0, 1fr) clamp(40px, 6vh, 48px);
       }
       .topbar { min-width: 0; gap: 8px; padding-inline: 10px; overflow: hidden; }
       .callsign { flex: 0 0 auto; }
@@ -218,36 +282,42 @@
         flex: 1 1 0; min-width: 0; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap;
       }
+      .topbar .stamp:first-of-type { display: none; }
+      .header-state { flex: 1 1 auto; min-width: 0; }
+      .header-stats { display: none; }
       .mode-toggle { flex: 0 0 auto; margin-left: 0; }
       .mode-toggle button { padding: 5px 10px; }
 
       .main {
-        width: 100%; min-width: 0;
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: auto clamp(335px, 48vh, 360px) clamp(170px, 26vh, 220px);
+        display: block; width: 100%; min-width: 0; min-height: 0; overflow: hidden;
+        isolation: isolate;
       }
-      .main > .panel:first-child { min-width: 0; min-height: 0; }
-      .main > .panel:first-child .panel-h { padding: 7px 10px 6px; }
-      .main > .panel:first-child .panel-body { overflow: hidden; padding: 6px 10px 8px; }
-      .main > .panel:first-child .search { margin-bottom: 6px; padding: 7px 8px; }
-      .main > .panel:first-child .filters {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 4px 6px; margin-bottom: 0;
-      }
-      .main > .panel:first-child .filters label:nth-child(n+3),
-      .main > .panel:first-child .layer-toggles,
-      .main > .panel:first-child .temuan,
-      .main > .panel:first-child .panel-body > .panel-h,
-      .main > .panel:first-child .obj-list { display: none; }
-      .main > .panel:first-child .filters select { min-width: 0; padding: 5px 6px; }
-
-      .canvas-wrap { width: 100%; min-width: 0; height: 100%; min-height: 0; }
+      .canvas-wrap { position: absolute; inset: 0; width: 100%; min-width: 0; height: 100%; min-height: 0; }
       #map, #graph { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+      .browser { position: absolute; z-index: 600; left: 0; right: 0; bottom: 0; height: 42vh; max-height: 72vh; border-right: 0; border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(0,0,0,0.25); transition: height 180ms ease, transform 180ms ease; }
+      .browser.sheet-collapsed { height: 58px; }
+      .browser.sheet-half { height: 42vh; }
+      .browser.sheet-expanded { height: 72vh; }
+      .browser .panel-h { min-height: 40px; padding: 7px 10px 6px; }
+      .browser .panel-body { overflow: auto; padding: 7px 10px 14px; }
+      .browser .search { margin-bottom: 7px; padding: 7px 8px; }
+      .browser.sheet-collapsed .panel-body { display: none; }
+      .browser.sheet-collapsed .panel-h::after { content: "⌃"; color: var(--amber); font-size: 15px; }
+      .browser.sheet-half .panel-h::after, .browser.sheet-expanded .panel-h::after { content: "⌄"; color: var(--amber); font-size: 15px; }
+      .browser .filter-disclosure { margin-bottom: 10px; }
+      .browser .layer-toggles { margin-bottom: 10px; }
+      .browser .temuan { display: none; }
+      .browser .panel-body > .panel-h { display: none; }
+      .browser .dossier-count { margin-top: 2px; }
+      .browser .obj-list { display: block; }
       .inspector {
-        width: 100%; min-width: 0; min-height: 0; max-height: none;
-        border-left: 0; border-top: 1px solid var(--line);
+        position: absolute; z-index: 700; left: 0; right: 0; bottom: 0; width: 100%; height: min(74vh, 720px); min-width: 0; min-height: 0; max-height: none;
+        border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(0,0,0,0.3); transform: translateY(105%); transition: transform 180ms ease;
       }
+      .main.mobile-inspector-open .inspector { transform: translateY(0); }
+      .main.mobile-inspector-open .browser { transform: translateY(105%); }
       .inspector .panel-h { padding: 7px 10px 6px; }
+      .mobile-close { display: inline-block; }
       .inspector .panel-body {
         min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
         overflow-wrap: anywhere; padding: 8px 10px 12px;
@@ -263,6 +333,10 @@
         flex: 0 1 120px; min-width: 0; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
       }
+      .findings-banner { top: 8px; left: 8px; right: 8px; gap: 8px; padding: 6px 8px; }
+      .findings-banner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .findings-banner a { display: none; }
+      .legend { left: 8px; bottom: 8px; }
     }
 
     @media (max-width: 520px) {
@@ -272,6 +346,9 @@
       .mode-toggle button { padding-inline: 8px; font-size: 12px; }
       .scrubber { padding-inline: 8px; }
       .scrubber .date-label { flex-basis: 96px; }
+      .findings-banner .eyebrow { font-size: 9px; }
+      .findings-banner strong { font-size: 11px; }
+      .findings-banner span { font-size: 11px; }
     }
   </style>
 </head>
@@ -285,76 +362,99 @@
     <header class="topbar">
       <div class="callsign">MERATUS</div>
       <div class="stamp"><strong>SUMBER TERBUKA</strong> · Karhutla Kalimantan</div>
-      <div class="stamp" id="stamp-meta">memuat…</div>
+      <div class="header-state">
+        <div class="stamp header-stats" id="header-stats">memuat data…</div>
+        <div class="stamp header-freshness" id="stamp-meta">memuat status…</div>
+      </div>
       <div class="mode-toggle" role="group" aria-label="Mode kanvas">
         <button type="button" id="btn-map" class="active">PETA</button>
-        <button type="button" id="btn-graph">GRAF</button>
+        <button type="button" id="btn-graph">JARINGAN</button>
       </div>
     </header>
 
     <div class="main">
       <!-- Kiri: Temuan + browser objek -->
-      <aside class="panel" aria-label="Browser objek">
-        <div class="panel-h">Browser · Temuan</div>
+      <aside class="panel browser sheet-half" aria-label="Browser dossier" id="browser-panel">
+        <div class="panel-h" id="sheet-toggle" role="button" tabindex="0" aria-expanded="true">
+          <span>Browser · Dossier</span>
+          <span class="sheet-label">12 dossier</span>
+        </div>
         <div class="panel-body">
           <input class="search" id="search" type="search" placeholder="Cari perusahaan, orang, partai, ID…" autocomplete="off" />
 
-          <div class="filters">
-            <label>Provinsi
-              <select id="f-prov">
-                <option value="">Semua</option>
-                <option>Kalimantan Barat</option>
-                <option>Kalimantan Tengah</option>
-                <option>Kalimantan Selatan</option>
-                <option>Kalimantan Timur</option>
-                <option>Kalimantan Utara</option>
-                <option>Kalimantan</option>
-              </select>
-            </label>
-            <label>Sektor
+          <div class="filter-primary">
+            <label>Sektor utama
               <select id="f-sector">
-                <option value="">Semua</option>
+                <option value="">Semua sektor</option>
                 <option>Tambang</option>
                 <option>PBPH</option>
                 <option>Sawit</option>
               </select>
             </label>
-            <label>Partai / ikatan
-              <select id="f-party">
-                <option value="">Semua</option>
-                <option value="Golkar">Golkar</option>
-                <option value="Gerindra">Gerindra</option>
-                <option value="Kabinet">Kabinet / koalisi</option>
-                <option value="PDI-P">Kampanye / PDI-P</option>
-                <option value="TIDAK">TIDAK TERPETAKAN</option>
-              </select>
-            </label>
-            <label>Keyakinan FIRMS
-              <select id="f-conf">
-                <option value="">Semua</option>
-                <option value="high">high</option>
-                <option value="nominal">nominal</option>
-                <option value="low">low</option>
-              </select>
-            </label>
           </div>
+
+          <details class="filter-disclosure" id="advanced-filters">
+            <summary>Filter +</summary>
+            <div class="filter-group-label">Dossier filters</div>
+            <div class="filters">
+              <label>Provinsi
+                <select id="f-prov">
+                  <option value="">Semua</option>
+                  <option>Kalimantan Barat</option>
+                  <option>Kalimantan Tengah</option>
+                  <option>Kalimantan Selatan</option>
+                  <option>Kalimantan Timur</option>
+                  <option>Kalimantan Utara</option>
+                  <option>Kalimantan</option>
+                </select>
+              </label>
+              <label>Political tie
+                <select id="f-party">
+                  <option value="">Semua</option>
+                  <option value="Golkar">Golkar</option>
+                  <option value="Gerindra">Gerindra</option>
+                  <option value="Kabinet">Kabinet / koalisi</option>
+                  <option value="PDI-P">Kampanye / PDI-P</option>
+                  <option value="TIDAK">Tidak terpetakan</option>
+                </select>
+              </label>
+              <label>Boundary quality
+                <select id="f-boundary">
+                  <option value="">Semua</option>
+                  <option value="OFFICIAL">OFFICIAL</option>
+                  <option value="GFW">GFW</option>
+                  <option value="PERKIRAAN">PERKIRAAN</option>
+                  <option value="none">NO BOUNDARY</option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-group-label">FIRMS filters</div>
+            <div class="filters">
+              <label>Confidence
+                <select id="f-conf">
+                  <option value="">Semua</option>
+                  <option value="high">high</option>
+                  <option value="nominal">nominal</option>
+                  <option value="low">low</option>
+                </select>
+              </label>
+              <label>Satellite / platform
+                <select id="f-platform">
+                  <option value="">Semua platform</option>
+                  <option value="S-NPP">S-NPP</option>
+                  <option value="NOAA-20">NOAA-20</option>
+                  <option value="NOAA-21">NOAA-21</option>
+                </select>
+              </label>
+            </div>
+          </details>
 
           <div class="layer-toggles" aria-label="Lapisan peta">
-            <label><input type="checkbox" id="tog-regions" checked /> Region konsesi (poligon)</label>
-            <label><input type="checkbox" id="tog-centroids" checked /> Marker centroid</label>
+            <label><input type="checkbox" id="tog-regions" checked /> Boundary dossier</label>
+            <label><input type="checkbox" id="tog-centroids" /> Tampilkan semua centroid</label>
           </div>
 
-          <div class="temuan" id="temuan">
-            <h3>Temuan</h3>
-            <p><span class="stat">74%</span> hotspot Kalimantan di dalam konsesi (klaim WALHI Jan–Jul 2026).</p>
-            <ul>
-              <li>34.262 deteksi · 25.524 di konsesi (HGU 10.739 · tambang 7.880 · PBPH 6.905).</li>
-              <li><button type="button" class="linkish" data-focus="kpc">Golkar ↔ Bakrie ↔ KPC</button> — jabatan partai, bukan atribusi api.</li>
-              <li><button type="button" class="linkish" data-focus="kiani">Gerindra ↔ Kiani Lestari</button> — historis + <em>caveat Gecko</em>.</li>
-            </ul>
-          </div>
-
-          <div class="panel-h" style="padding-left:0;border:0;">12 Konsesi WALHI</div>
+          <div class="dossier-count"><span>Filtered dossiers</span><strong id="dossier-count">—</strong></div>
           <ul class="obj-list" id="obj-list"></ul>
         </div>
       </aside>
@@ -363,19 +463,27 @@
       <section class="canvas-wrap" aria-label="Kanvas">
         <div id="map"></div>
         <div id="graph">
-          <div class="graph-hint">GRAF OBJEK · tepi berlabel · klik node → inspector</div>
+          <div class="graph-hint">JARINGAN OBJEK · dossier terpilih · tepi berlabel</div>
           <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
         </div>
+        <div class="findings-banner" id="findings-banner" aria-label="Ringkasan klaim WALHI">
+          <span class="eyebrow">WALHI · <span id="walhi-period">periode klaim</span></span>
+          <strong id="walhi-stat">—</strong>
+          <span id="walhi-copy">reported hotspots berada di wilayah konsesi</span>
+          <a href="docs/methodology.md" target="_blank" rel="noopener">Methodology ↗</a>
+        </div>
         <div class="legend" id="map-legend">
-          <div><span class="fire-dot"></span>Deteksi FIRMS (cluster)</div>
-          <div><span class="co-dot"></span>Centroid konsesi</div>
-          <div><span class="co-region"></span>Region batas lahan (GeoJSON)</div>
+          <div><span class="fire-dot"></span>FIRMS satellite detection</div>
+          <div><span class="boundary-official"></span>OFFICIAL boundary</div>
+          <div><span class="boundary-gfw"></span>GFW boundary</div>
+          <div><span class="boundary-approx"></span>PERKIRAAN boundary</div>
+          <div><span class="boundary-none"></span>Location only / no boundary</div>
         </div>
       </section>
 
       <!-- Kanan: Inspector -->
       <aside class="panel inspector" aria-label="Inspector dossier">
-        <div class="panel-h">Inspector</div>
+        <div class="panel-h"><span>Inspector</span><button type="button" class="mobile-close" id="mobile-close-inspector">← Dossiers</button></div>
         <div class="panel-body" id="inspector">
           <div class="insp-empty">Pilih cluster api, konsesi, atau node graf. Empat lapisan bukti tetap terpisah.</div>
         </div>
@@ -400,12 +508,18 @@
 
     var elList = document.getElementById("obj-list");
     var elInsp = document.getElementById("inspector");
+    var elHeaderStats = document.getElementById("header-stats");
     var elStamp = document.getElementById("stamp-meta");
+    var elDossierCount = document.getElementById("dossier-count");
+    var elSheetLabel = document.querySelector(".sheet-label");
     var elTime = document.getElementById("time-range");
     var elTimeLabel = document.getElementById("time-label");
     var elSearch = document.getElementById("search");
+    var mainEl = document.querySelector(".main");
+    var browserPanel = document.getElementById("browser-panel");
 
-    elStamp.textContent = "MEMUAT data/*.json …";
+    elHeaderStats.textContent = "MEMUAT data/*.json …";
+    elStamp.textContent = "memuat status…";
     elInsp.innerHTML = '<div class="insp-empty">Memuat <span class="mono">data/firms.json</span>, <span class="mono">data/dossiers.json</span> &amp; <span class="mono">data/boundaries.geojson</span>…</div>';
 
     function synthesizeSipongiPoints(sip) {
@@ -454,10 +568,12 @@
       loadJson("data/dossiers.json"),
       loadJson("data/boundaries.geojson").catch(function () {
         return { type: "FeatureCollection", features: [] };
-      })
+      }),
+      loadJson("data/firms-status.json").catch(function () { return null; })
     ]).then(function (pair) {
-      boot(pair[0], pair[1], pair[2]);
+      boot(pair[0], pair[1], pair[2], pair[3]);
     }).catch(function (err) {
+      elHeaderStats.textContent = "DATA ERROR";
       elStamp.textContent = "GAGAL MUAT JSON";
       elInsp.innerHTML =
         '<div class="insp-empty">Gagal memuat data. Jalankan lewat HTTP server lokal, lalu pastikan file ada di <span class="mono">data/</span>.<br/><br/><span class="mono">' +
@@ -465,9 +581,10 @@
         "</span></div>";
     });
 
-    function boot(firmsPayload, dossierPayload, boundariesGeo) {
+    function boot(firmsPayload, dossierPayload, boundariesGeo, pipelineStatusPayload) {
     var firms = [];
     var firmsMeta = null;
+    var pipelineStatus = (pipelineStatusPayload && typeof pipelineStatusPayload === "object") ? pipelineStatusPayload : null;
     var usingFallback = false;
     var sipongi = dossierPayload.sipongiFallback || null;
     var dossiers = dossierPayload.dossiers || [];
@@ -479,6 +596,104 @@
       if (!boundaryById[id]) boundaryById[id] = [];
       boundaryById[id].push(f);
     });
+
+    function normalizeBoundaryQuality(value) {
+      var q = String(value || "").trim().toUpperCase();
+      return q === "OFFICIAL" || q === "GFW" || q === "PERKIRAAN" ? q : "PERKIRAAN";
+    }
+
+    function boundaryStatus(d) {
+      var bounds = boundaryById[d.id] || [];
+      if (!bounds.length) return { key: "none", label: "NO BOUNDARY", qualities: [] };
+      var qualities = Array.from(new Set(bounds.map(function (f) {
+        return normalizeBoundaryQuality(f.properties && f.properties.quality);
+      })));
+      var label = qualities.length === 1 ? qualities[0] : qualities.join(" + ");
+      var key = qualities.indexOf("OFFICIAL") !== -1 ? "official"
+        : qualities.indexOf("GFW") !== -1 ? "gfw" : "approx";
+      return { key: key, label: label, qualities: qualities };
+    }
+
+    function normalizePlatform(point) {
+      var raw = String(point.platform || point.sat || "").toUpperCase().replace(/[_\s]/g, "-");
+      if (raw === "N" || raw === "SNPP" || raw === "S-NPP" || raw.indexOf("SNPP") !== -1) return "S-NPP";
+      if (raw === "N20" || raw === "NOAA20" || raw === "NOAA-20" || raw.indexOf("NOAA-20") !== -1) return "NOAA-20";
+      if (raw === "N21" || raw === "NOAA21" || raw === "NOAA-21" || raw.indexOf("NOAA-21") !== -1) return "NOAA-21";
+      return point._fallback ? "SIPONGI" : (point.platform || point.sat || "UNKNOWN");
+    }
+
+    function detectionDate(point) {
+      if (!point || !point.date) return null;
+      var hhmm = String(point.time == null ? "0000" : point.time).padStart(4, "0");
+      var iso = point.date + "T" + hhmm.slice(0, 2) + ":" + hhmm.slice(2, 4) + ":00Z";
+      var date = new Date(iso);
+      return isNaN(date.getTime()) ? null : date;
+    }
+
+    function latestDetectionDate(points) {
+      return points.reduce(function (latest, point) {
+        var date = detectionDate(point);
+        return date && (!latest || date > latest) ? date : latest;
+      }, null);
+    }
+
+    function formatWib(value, includeTime) {
+      if (!value) return "—";
+      var date = value instanceof Date ? value : new Date(value);
+      if (isNaN(date.getTime())) return String(value);
+      var options = { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric" };
+      if (includeTime) { options.hour = "2-digit"; options.minute = "2-digit"; }
+      return new Intl.DateTimeFormat("id-ID", options).format(date) + (includeTime ? " WIB" : "");
+    }
+
+    function formatAge(value) {
+      if (!value) return null;
+      var date = value instanceof Date ? value : new Date(value);
+      if (isNaN(date.getTime())) return null;
+      var minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+      if (minutes < 60) return minutes + "m";
+      var hours = Math.floor(minutes / 60);
+      if (hours < 48) return hours + "h " + (minutes % 60) + "m";
+      return Math.floor(hours / 24) + "d";
+    }
+
+    function renderDatasetState() {
+      var count = firmsMeta && firmsMeta.count != null ? firmsMeta.count : firms.length;
+      var mapped = dossiers.filter(function (d) { return (boundaryById[d.id] || []).length > 0; }).length;
+      elHeaderStats.textContent = count.toLocaleString("id-ID") + " FIRMS detections · " + dossiers.length + " dossiers · " + mapped + "/" + dossiers.length + " boundaries mapped";
+
+      var newest = firmsMeta && firmsMeta.newestDetectionUtc
+        ? new Date(firmsMeta.newestDetectionUtc)
+        : latestDetectionDate(firms);
+      var syncValue = firmsMeta && (firmsMeta.lastSuccessfulSync || firmsMeta.fetched);
+      var sourceName = usingFallback ? "SIPONGI fallback" : (/NRT/i.test((firmsMeta && firmsMeta.source) || "") ? "NASA FIRMS NRT" : "NASA FIRMS snapshot");
+      var status = usingFallback ? "fallback" : (pipelineStatus && (pipelineStatus.pipelineStatus === "stale" || pipelineStatus.stale === true)
+        ? "stale"
+        : (firmsMeta && (firmsMeta.pipelineStatus === "stale" || firmsMeta.stale === true) ? "stale" : "healthy"));
+      var syncText = syncValue && String(syncValue).indexOf("T") !== -1
+        ? "sync " + formatWib(syncValue, true)
+        : (syncValue ? "snapshot " + String(syncValue) : "sync time unavailable");
+      var staleSync = pipelineStatus && pipelineStatus.lastSuccessfulSync
+        ? " · last successful sync " + formatWib(pipelineStatus.lastSuccessfulSync, true)
+        : "";
+      var newestText = newest && !isNaN(newest.getTime())
+        ? " · newest observation " + formatWib(newest, true) + (formatAge(newest) ? " · age " + formatAge(newest) : "")
+        : "";
+      elStamp.dataset.status = status;
+      elStamp.title = (pipelineStatus && pipelineStatus.error) || (firmsMeta && firmsMeta.error) || "Pipeline sync and satellite-observation age are tracked separately.";
+      elStamp.textContent = (status === "stale" ? "DATA PIPELINE STALE · " : "") + sourceName + " · " + syncText + staleSync + newestText;
+
+      var periodEl = document.getElementById("walhi-period");
+      var statEl = document.getElementById("walhi-stat");
+      var copyEl = document.getElementById("walhi-copy");
+      if (walhi) {
+        if (periodEl) periodEl.textContent = walhi.period || "periode tidak dinyatakan";
+        if (statEl) statEl.textContent = (walhi.pctInConcession != null ? walhi.pctInConcession + "%" : "WALHI CLAIM");
+        if (copyEl) copyEl.textContent = (walhi.inConcession != null && walhi.totalKalimantan != null
+          ? walhi.inConcession.toLocaleString("id-ID") + " / " + walhi.totalKalimantan.toLocaleString("id-ID") + " reported hotspots berada di wilayah konsesi"
+          : "reported hotspots berada di wilayah konsesi");
+      }
+    }
 
     if (firmsPayload && !firmsPayload.__error) {
       firms = Array.isArray(firmsPayload)
@@ -508,24 +723,22 @@
       prov: "",
       sector: "",
       party: "",
+      boundary: "",
       conf: "",
+      platform: "",
       search: "",
       dateIdx: 0,
       dates: [],
       showRegions: true,
-      showCentroids: true
+      showCentroids: false,
+      sheetState: "half"
     };
 
     var dates = Array.from(new Set(firms.map(function (f) { return f.date; }))).sort();
     state.dates = dates;
     state.dateIdx = dates.length ? dates.length - 1 : 0;
 
-    var nBound = Object.keys(boundaryById).length;
-    elStamp.textContent =
-      (usingFallback ? "FALLBACK SIPONGI · " : "FIRMS · ") +
-      (firmsMeta && firmsMeta.count != null ? firmsMeta.count + " titik" : firms.length + " titik") +
-      " · region " + nBound + "/" + dossiers.length +
-      " · data/* · " + new Date().toISOString().slice(0, 16).replace("T", " ") + "Z";
+    renderDatasetState();
 
     /* ---------- Filters / list ---------- */
     function partyMatch(d) {
@@ -545,6 +758,14 @@
         if (state.sector && d.sector !== state.sector) return false;
         if (state.prov && d.province !== state.prov) return false;
         if (!partyMatch(d)) return false;
+        if (state.boundary) {
+          var boundary = boundaryStatus(d);
+          if (state.boundary === "none") {
+            if (boundary.qualities.length) return false;
+          } else if (boundary.qualities.indexOf(state.boundary) === -1) {
+            return false;
+          }
+        }
         if (!q) return true;
         var blob = [
           d.id, d.name, d.sector, d.province, d.uboStatus,
@@ -559,16 +780,18 @@
 
     function renderList() {
       var items = filteredDossiers();
+      elDossierCount.textContent = items.length + " / " + dossiers.length;
+      if (elSheetLabel) elSheetLabel.textContent = items.length + " dossier" + (items.length === 1 ? "" : "s");
       elList.innerHTML = items.map(function (d) {
         var sel = state.selectedId === d.id && state.selectedType === "company" ? " selected" : "";
+        var b = boundaryStatus(d);
         return (
           '<li class="' + sel + '" data-id="' + d.id + '">' +
             '<div><div class="name">' + escapeHtml(d.name) + '</div>' +
             '<div class="meta">' + escapeHtml(d.sector) + " · " + escapeHtml(d.province) +
-            (d.uboStatus === "UNKNOWN" ? " · UBO UNKNOWN" : "") +
-            (d.politicalStatus === "TIDAK TERPETAKAN" ? " · PARPOL —" : "") +
+            '<br/><span class="boundary-status ' + b.key + '">' + escapeHtml(b.label) + "</span>" +
             "</div></div>" +
-            '<div class="hot">' + d.walhiHotspots.toLocaleString("id-ID") + "</div>" +
+            '<div class="hot"><span class="claim-label">WALHI claim</span>' + d.walhiHotspots.toLocaleString("id-ID") + "</div>" +
           "</li>"
         );
       }).join("");
@@ -597,93 +820,114 @@
       }).join("") + "</ul>";
     }
 
+    function renderSourceLinks(d, ids) {
+      var sm = sourceMap(d);
+      var list = (ids || []).map(function (id) { return sm[id]; }).filter(Boolean);
+      if (!list.length) return "Sumber tidak ditautkan di dossier.";
+      return list.map(function (s) {
+        return '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">' + escapeHtml(s.label) + " ↗</a>";
+      }).join(" · ");
+    }
+
+    function openMobileInspector() {
+      if (window.matchMedia && window.matchMedia("(max-width: 960px)").matches) {
+        mainEl.classList.add("mobile-inspector-open");
+      }
+    }
+
+    function closeMobileInspector() {
+      mainEl.classList.remove("mobile-inspector-open");
+      if (browserPanel) browserPanel.classList.remove("sheet-collapsed", "sheet-expanded");
+      if (browserPanel) browserPanel.classList.add("sheet-half");
+      state.sheetState = "half";
+    }
+
+    function cycleSheet() {
+      if (!browserPanel || !(window.matchMedia && window.matchMedia("(max-width: 960px)").matches)) return;
+      var next = state.sheetState === "collapsed" ? "half" : state.sheetState === "half" ? "expanded" : "collapsed";
+      browserPanel.classList.remove("sheet-collapsed", "sheet-half", "sheet-expanded");
+      browserPanel.classList.add("sheet-" + next);
+      state.sheetState = next;
+      var toggle = document.getElementById("sheet-toggle");
+      if (toggle) toggle.setAttribute("aria-expanded", next !== "collapsed" ? "true" : "false");
+      if (state.mode === "map") setTimeout(function () { map.invalidateSize(); }, 220);
+    }
+
     function showCompany(d) {
       state.selectedId = d.id;
       state.selectedType = "company";
       renderList();
 
-      var partyTags = (d.politicalTies || []).map(function (t) {
-        var cls = "tag";
-        if (/Golkar/i.test(t.party)) cls += " golkar";
-        else if (/Gerindra/i.test(t.party)) cls += " gerindra";
-        else cls += " amber";
-        return '<span class="' + cls + '">' + escapeHtml(t.party) + "</span>";
-      }).join("");
-      if (d.politicalStatus === "TIDAK TERPETAKAN" || !(d.politicalTies || []).length) {
-        partyTags += '<span class="tag warn">TIDAK TERPETAKAN</span>';
-      }
+      var controls = d.control || {};
+      var personsData = controls.persons || [];
+      var personById = {};
+      personsData.forEach(function (p) { personById[p.id] = p; });
+      var tiesData = d.politicalTies || [];
+      var bounds = boundaryById[d.id] || [];
+      var bStatus = boundaryStatus(d);
+      var partyNames = Array.from(new Set(tiesData.map(function (t) { return t.party; }).filter(Boolean)));
+      var politicalSummary = partyNames.length ? partyNames.join(" · ") : "TIDAK TERPETAKAN";
+      var controlSummary = controls.group || "Tidak terpetakan";
+      var uboLabel = d.uboStatus === "UNKNOWN" ? "UBO UNKNOWN" : d.uboStatus === "CAVEAT" ? "UBO CAVEAT" : "UBO TERKUNCI";
+      var uboClass = d.uboStatus === "KNOWN" ? "ok" : "warn";
+      var period = walhi && walhi.period ? walhi.period : "periode tidak dinyatakan";
 
-      var uboTag = d.uboStatus === "UNKNOWN"
-        ? '<span class="tag warn">UBO UNKNOWN</span>'
-        : d.uboStatus === "CAVEAT"
-          ? '<span class="tag warn">UBO CAVEAT</span>'
-          : '<span class="tag ok">UBO TERKUNCI</span>';
+      var boundHtml = bounds.length
+        ? bounds.map(function (f) {
+            var p = f.properties || {};
+            var q = normalizeBoundaryQuality(p.quality);
+            return '<div class="caveat" style="border-color:var(--amber)">' +
+              '<strong>' + escapeHtml(q) + '</strong>' +
+              (p.source ? '<br/>' + escapeHtml(p.source) : '') +
+              (p.sourceUrl ? '<br/><a href="' + escapeHtml(p.sourceUrl) + '" target="_blank" rel="noopener">View source ↗</a>' : '') +
+              '</div>';
+          }).join("")
+        : '<div class="caveat"><strong>NO BOUNDARY</strong><br/>Location-only fallback. Centroid dipakai untuk navigasi kasar; tidak ada polygon yang ditampilkan.</div>';
 
-      var persons = (d.control.persons || []).map(function (p) {
-        return "<div><strong>" + escapeHtml(p.name) + "</strong><br/><span class=\"meta\" style=\"font-family:var(--font-mono);font-size:11px;color:var(--muted)\">" + escapeHtml(p.role) + "</span></div>";
-      }).join("") || "<div class=\"insp-empty\">Tidak ada person yang dikunci.</div>";
+      var persons = personsData.map(function (p) {
+        return '<div class="tie-card"><strong>' + escapeHtml(p.name) + '</strong><br/><span class="tie-meta">' + escapeHtml(p.role || "peran tidak dinyatakan") + '</span></div>';
+      }).join("") || '<div class="insp-empty">Tidak ada person yang dikunci.</div>';
 
-      var ties = (d.politicalTies || []).map(function (t) {
-        return (
-          '<div class="caveat" style="border-color:var(--line)">' +
-            "<strong>" + escapeHtml(t.type) + "</strong> · keyakinan sumber: " + escapeHtml(t.confidence) +
-            "<br/>" + escapeHtml(t.detail) +
-          "</div>"
-        );
-      }).join("") || '<div class="insp-empty">Ikatan politik: TIDAK TERPETAKAN</div>';
+      var ties = tiesData.map(function (t) {
+        var actor = personById[t.personId];
+        var sourceHtml = renderSourceLinks(d, t.sources);
+        return '<div class="tie-card">' +
+          '<strong>Actor</strong> · ' + escapeHtml(actor ? actor.name : (t.personId || "Tidak dinyatakan")) +
+          '<div class="tie-meta">' + escapeHtml(t.type || "relationship tidak dinyatakan") + ' · ' + escapeHtml(t.period || "periode tidak dinyatakan") + ' · confidence ' + escapeHtml(t.confidence || "tidak dinyatakan") + '</div>' +
+          '<div>' + escapeHtml(t.detail || "Tidak ada ringkasan detail.") + '</div>' +
+          '<div class="tie-meta">Source: ' + sourceHtml + '</div>' +
+          '</div>';
+      }).join("") || '<div class="insp-empty">Political tie: TIDAK TERPETAKAN.</div>';
 
       var caves = (d.caveats || []).map(function (c) {
         return '<div class="caveat">' + escapeHtml(c) + "</div>";
-      }).join("");
-
-      var bounds = boundaryById[d.id] || [];
-      var boundHtml;
-      if (bounds.length) {
-        boundHtml = bounds.map(function (f) {
-          var p = f.properties || {};
-          return (
-            '<div class="caveat" style="border-color:var(--amber)">' +
-              "<strong>Region " + escapeHtml(p.quality || "—") + "</strong>" +
-              (p.source ? "<br/>" + escapeHtml(p.source) : "") +
-              (p.sourceUrl
-                ? '<br/><a href="' + escapeHtml(p.sourceUrl) + '" target="_blank" rel="noopener">sumber geometri</a>'
-                : "") +
-            "</div>"
-          );
-        }).join("");
-      } else {
-        boundHtml =
-          '<div class="insp-empty">Belum ada poligon di <span class="mono">data/boundaries.geojson</span> untuk id <span class="mono">' +
-          escapeHtml(d.id) +
-          "</span>. Tambah Feature dengan <span class=\"mono\">properties.dossierId</span>.</div>";
-      }
+      }).join("") || '<div class="insp-empty">Tidak ada caveat tambahan.</div>';
 
       elInsp.innerHTML =
-        '<div class="insp-title">' + escapeHtml(d.name) + "</div>" +
-        '<div class="insp-id">OBJ/' + escapeHtml(d.id.toUpperCase()) + " · ConcessionClaim</div>" +
-        '<div>' +
-          '<span class="tag fire">' + d.walhiHotspots.toLocaleString("id-ID") + " hotspot WALHI</span>" +
-          '<span class="tag amber">' + escapeHtml(d.sector) + "</span>" +
-          (bounds.length
-            ? '<span class="tag ok">REGION ' + bounds.length + "</span>"
-            : '<span class="tag warn">TANPA POLIGON</span>') +
-          uboTag + partyTags +
-        "</div>" +
-        '<dl class="kv">' +
-          "<dt>Provinsi</dt><dd>" + escapeHtml(d.province) + "</dd>" +
-          "<dt>Centroid</dt><dd>" + d.centroid[0].toFixed(4) + ", " + d.centroid[1].toFixed(4) + "</dd>" +
-          "<dt>Grup</dt><dd>" + escapeHtml(d.control.group || "—") + "</dd>" +
-          "<dt>Periode klaim</dt><dd>" + escapeHtml(walhi.period) + "</dd>" +
-        "</dl>" +
-        '<div class="section"><h4>Batas lahan (region)</h4>' + boundHtml + "</div>" +
-        '<div class="section"><h4>Kontrol / UBO</h4><p style="margin:0 0 8px;font-size:14px;line-height:1.4">' +
-          escapeHtml(d.control.summary) + "</p>" + persons + "</div>" +
-        '<div class="section"><h4>Ikatan politik</h4>' + ties +
-          '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">IkatanPolitik = jabatan/kampanye/kekerabatan/kabinet — bukan bukti pembakaran.</p></div>' +
-        '<div class="section"><h4>Caveat</h4>' + caves + "</div>" +
-        '<div class="section"><h4>Sumber bernama</h4>' + renderSources(d) + "</div>" +
-        '<div class="section"><h4>Lapisan</h4><p style="font-size:12px;color:var(--muted);line-height:1.4;margin:0">' +
-          "Ini ConcessionClaim WALHI + Control. Titik FIRMS di peta adalah Detection terpisah — bukan join GIS ke poligon konsesi kecuali kamu sediakan geometri di boundaries.geojson.</p></div>";
+        '<div class="insp-title">' + escapeHtml(d.name) + '</div>' +
+        '<div class="insp-subtitle">' + escapeHtml(d.sector) + ' · ' + escapeHtml(d.province) + '</div>' +
+        '<div class="insp-id">OBJ/' + escapeHtml(d.id.toUpperCase()) + ' · ConcessionClaim</div>' +
+        '<div class="summary-grid">' +
+          '<div class="summary-card claim"><span class="label">WALHI claim</span><strong>' + d.walhiHotspots.toLocaleString("id-ID") + '</strong><small>reported hotspots · ' + escapeHtml(period) + '</small></div>' +
+          '<div class="summary-card"><span class="label">Boundary</span><strong>' + escapeHtml(bStatus.label) + '</strong><small>' + (bounds.length ? 'polygon tersedia' : 'location only') + '</small></div>' +
+          '<div class="summary-card"><span class="label">Control</span><strong>' + escapeHtml(controlSummary) + '</strong><small>' + escapeHtml(uboLabel) + '</small></div>' +
+          '<div class="summary-card"><span class="label">Political tie</span><strong>' + escapeHtml(politicalSummary) + '</strong><small>public context · bukan atribusi api</small></div>' +
+        '</div>' +
+        '<div><span class="tag ' + uboClass + '">' + escapeHtml(uboLabel) + '</span><span class="tag amber">' + escapeHtml(d.sector) + '</span></div>' +
+        '<details class="details-section" open><summary>Boundary · ' + escapeHtml(bStatus.label) + '</summary><div class="section-content">' + boundHtml + '</div></details>' +
+        '<details class="details-section" open><summary>Ownership / control</summary><div class="section-content"><p style="margin:0 0 8px;font-size:14px;line-height:1.4">' + escapeHtml(controls.summary || "Ringkasan kontrol belum tersedia.") + '</p>' + persons + '</div></details>' +
+        '<details class="details-section" open><summary>Political ties · ' + tiesData.length + '</summary><div class="section-content">' + ties + '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">Political tie adalah jabatan, kampanye, kekerabatan, atau kabinet yang terdokumentasi — bukan bukti perusahaan atau partai menyebabkan kebakaran.</p></div></details>' +
+        '<details class="details-section"><summary>Sources (' + (d.sources || []).length + ')</summary><div class="section-content">' + renderSources(d) + '</div></details>' +
+        '<details class="details-section"><summary>Caveats (' + (d.caveats || []).length + ')</summary><div class="section-content">' + caves + '</div></details>' +
+        '<details class="details-section"><summary>Technical details</summary><div class="section-content"><dl class="kv">' +
+          '<dt>Centroid</dt><dd>' + (d.centroid ? d.centroid[0].toFixed(4) + ', ' + d.centroid[1].toFixed(4) : '—') + '</dd>' +
+          '<dt>Boundary features</dt><dd>' + bounds.length + '</dd>' +
+          '<dt>Dossier ID</dt><dd>' + escapeHtml(d.id) + '</dd>' +
+          '</dl></div></details>' +
+        '<details class="details-section"><summary>Methodology</summary><div class="section-content"><p style="font-size:12px;color:var(--muted);line-height:1.4;margin:0">WALHI claim, boundary provenance, control, political ties, and FIRMS satellite detections are separate evidence layers. MERATUS does not infer fire causation from proximity, overlap, ownership, or political affiliation.</p></div></details>';
+
+      refreshConcessionMarkers();
+      openMobileInspector();
 
       if (state.mode === "map" && map) {
         flyToConcession(d);
@@ -707,29 +951,38 @@
     function showFirmsPoint(p, nearest) {
       state.selectedId = p.date + "_" + p.lat + "_" + p.lon;
       state.selectedType = "detection";
+      var platform = normalizePlatform(p);
+      var acquired = detectionDate(p);
       var nearHtml = nearest
         ? '<button type="button" class="linkish" id="goto-near" style="background:none;border:0;color:var(--amber);cursor:pointer;padding:0;font:inherit">' +
-            escapeHtml(nearest.name) + " (" + nearest.walhiHotspots + " hotspot klaim)</button>" +
+            escapeHtml(nearest.name) + " (" + nearest.walhiHotspots.toLocaleString("id-ID") + " WALHI claim)</button>" +
             '<p style="font-size:12px;color:var(--muted);margin:4px 0 0">Konsesi terdekat (jarak centroid kasar) — <strong>bukan join GIS</strong>.</p>'
         : '<p class="insp-empty">Tidak ada centroid dossier dalam radius kasar.</p>';
 
       elInsp.innerHTML =
-        '<div class="insp-title">Deteksi termal</div>' +
-        '<div class="insp-id">DET/FIRMS · Detection</div>' +
-        '<div><span class="tag fire">' + escapeHtml(p.conf) + "</span>" +
-          (p._fallback ? '<span class="tag warn">SIPONGI FALLBACK</span>' : '<span class="tag amber">VIIRS</span>') +
-        "</div>" +
+        '<div class="insp-title">' + (p._fallback ? 'SIPONGI FALLBACK' : 'NASA FIRMS DETECTION') + '</div>' +
+        '<div class="insp-subtitle">Satellite thermal detection · bukan verifikasi lapangan</div>' +
+        '<div class="insp-id">DET/' + escapeHtml(platform) + ' · Detection</div>' +
+        '<div class="summary-grid">' +
+          '<div class="summary-card"><span class="label">Platform</span><strong>' + escapeHtml(platform) + '</strong><small>VIIRS sensor bila tersedia</small></div>' +
+          '<div class="summary-card"><span class="label">Confidence</span><strong>' + escapeHtml(p.conf || "—") + '</strong><small>FIRMS field</small></div>' +
+          '<div class="summary-card"><span class="label">FRP</span><strong>' + (p.frp != null ? escapeHtml(p.frp) + ' MW' : '—') + '</strong><small>fire radiative power</small></div>' +
+          '<div class="summary-card"><span class="label">Source</span><strong>NASA FIRMS</strong><small>raw observation context</small></div>' +
+        '</div>' +
         '<dl class="kv">' +
           "<dt>Lat / Lon</dt><dd>" + p.lat + ", " + p.lon + "</dd>" +
-          "<dt>Akuisisi</dt><dd>" + escapeHtml(p.date) + " " + escapeHtml(String(p.time).padStart(4, "0")) + " UTC</dd>" +
-          "<dt>Satelit</dt><dd>" + escapeHtml(p.sat) + "</dd>" +
+          "<dt>Acquired</dt><dd>" + escapeHtml(p.date || "—") + " " + escapeHtml(String(p.time == null ? "—" : p.time).padStart(4, "0")) + " UTC" + (acquired ? " · " + escapeHtml(formatWib(acquired, true)) : "") + "</dd>" +
+          "<dt>Platform</dt><dd>" + escapeHtml(platform) + "</dd>" +
           "<dt>bright_ti4</dt><dd>" + (p.b4 != null ? p.b4 : "—") + "</dd>" +
           "<dt>bright_ti5</dt><dd>" + (p.b5 != null ? p.b5 : "—") + "</dd>" +
           "<dt>FRP</dt><dd>" + (p.frp != null ? p.frp : "—") + "</dd>" +
           "<dt>Day/Night</dt><dd>" + escapeHtml(p.dn || "—") + "</dd>" +
         "</dl>" +
-        '<div class="caveat">Detection ≠ kebakaran terverifikasi lapangan. Bukan atribusi ke perusahaan.</div>' +
-        '<div class="section"><h4>Konsesi terdekat (klaim WALHI)</h4>' + nearHtml + "</div>";
+        '<div class="caveat">Satellite thermal detection ≠ kebakaran terverifikasi lapangan. Kedekatan dengan dossier ≠ atribusi ke perusahaan.</div>' +
+        '<details class="details-section" open><summary>Konteks dossier terdekat</summary><div class="section-content">' + nearHtml + '</div></details>' +
+        '<details class="details-section"><summary>Methodology</summary><div class="section-content"><p style="font-size:12px;color:var(--muted);line-height:1.4;margin:0">FIRMS points are Detection evidence. WALHI counts are separate claims and are not recomputed from the point currently selected.</p></div></details>';
+
+      openMobileInspector();
 
       var btn = document.getElementById("goto-near");
       if (btn && nearest) {
@@ -786,6 +1039,7 @@
       return firms.filter(function (p) {
         if (d && p.date !== d) return false;
         if (state.conf && p.conf !== state.conf) return false;
+        if (state.platform && normalizePlatform(p) !== state.platform) return false;
         return true;
       });
     }
@@ -804,20 +1058,21 @@
         })(pts[i]);
       }
       clusterGroup.addLayers(markers);
-      elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " deteksi" +
-        (state.conf ? " (" + state.conf + ")" : "");
+      elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " satellite detections" +
+        (state.conf ? " · " + state.conf : "") + (state.platform ? " · " + state.platform : "");
     }
 
     function regionStyle(feature, selected) {
-      var q = (feature.properties && feature.properties.quality) || "";
-      var isApprox = /PERKIRAAN/i.test(q);
+      var q = normalizeBoundaryQuality(feature.properties && feature.properties.quality);
+      var isGfw = q === "GFW";
+      var isApprox = q === "PERKIRAAN";
       return {
         color: selected ? "#fff" : "#e3a008",
-        weight: selected ? 2.5 : 1.5,
+        weight: selected ? 2.5 : (isApprox ? 1.25 : 1.5),
         opacity: 1,
         fillColor: "#e3a008",
-        fillOpacity: selected ? 0.35 : (isApprox ? 0.12 : 0.22),
-        dashArray: isApprox ? "4 3" : null
+        fillOpacity: selected ? 0.32 : (isApprox ? 0.06 : (isGfw ? 0.12 : 0.22)),
+        dashArray: isApprox ? "2 4" : (isGfw ? "7 5" : null)
       };
     }
 
@@ -850,17 +1105,19 @@
           regionLayersById[d.id] = gj;
         }
 
-        if (state.showCentroids) {
+        if (!feats.length || state.showCentroids) {
           var icon = L.divIcon({
             className: "",
-            html: '<div class="concession-icon" title="' + escapeHtml(d.name) + '">' + d.walhiHotspots + "</div>",
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
+            html: feats.length
+              ? '<div class="concession-icon" title="WALHI claim ' + d.walhiHotspots.toLocaleString("id-ID") + '">W</div>'
+              : '<div class="concession-fallback-icon" title="BOUNDARY UNAVAILABLE">⌖</div>',
+            iconSize: feats.length ? [28, 28] : [26, 26],
+            iconAnchor: feats.length ? [14, 14] : [13, 13]
           });
           var m = L.marker(d.centroid, { icon: icon });
           m.on("click", function () { showCompany(d); });
           m.bindTooltip(
-            d.name + (feats.length ? " · ada region" : " · tanpa poligon"),
+            d.name + (feats.length ? " · " + boundaryStatus(d).label : " · BOUNDARY UNAVAILABLE · WALHI claim " + d.walhiHotspots.toLocaleString("id-ID")),
             { direction: "top", opacity: 0.9 }
           );
           concessionLayer.addLayer(m);
@@ -875,68 +1132,54 @@
       var h = svg.clientHeight || svg.parentElement.clientHeight || 600;
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
 
-      var visible = filteredDossiers();
-      if (focusId) {
-        var focus = dossiers.find(function (d) { return d.id === focusId; });
-        if (focus && visible.indexOf(focus) === -1) visible = visible.concat([focus]);
+      var focus = focusId ? dossiers.find(function (d) { return d.id === focusId; }) : null;
+      if (!focus) {
+        svg.innerHTML = '<text x="' + (w / 2) + '" y="' + (h / 2) + '" fill="#7a756c" font-size="14" font-family="Saira Condensed, sans-serif" text-anchor="middle">Pilih dossier untuk melihat neighborhood jaringan.</text>';
+        return;
       }
 
       var nodes = [];
       var edges = [];
-      var partyNodes = {};
+      var added = {};
+      function addNode(node) {
+        if (!added[node.id]) { added[node.id] = true; nodes.push(node); }
+        return node.id;
+      }
+      function addEdge(from, to, label) { edges.push({ from: from, to: to, label: label }); }
 
-      // Party hubs
-      ["Golkar", "Gerindra", "Kabinet / koalisi", "PDI-P / kampanye"].forEach(function (p, i) {
-        var id = "party:" + p;
-        partyNodes[p] = id;
-        nodes.push({
-          id: id, label: p, type: "party",
-          x: w * 0.12, y: h * (0.2 + i * 0.18)
-        });
+      var companyId = addNode({ id: "co:" + focus.id, label: focus.name.replace(/^PT /, ""), type: "company", ref: focus.id, x: w * 0.25, y: h * 0.48 });
+      var claimId = addNode({ id: "claim:" + focus.id, label: "WALHI CLAIM " + focus.walhiHotspots.toLocaleString("id-ID"), type: "detection", x: w * 0.24, y: h * 0.2 });
+      addEdge(claimId, companyId, "CLAIM CONTEXT");
+
+      var controls = focus.control || {};
+      var groupId = addNode({ id: "group:" + focus.id, label: controls.group || "CONTROL UNKNOWN", type: "group", x: w * 0.55, y: h * 0.35 });
+      addEdge(companyId, groupId, "CONTROL / OWNERSHIP");
+
+      var persons = controls.persons || [];
+      var ties = focus.politicalTies || [];
+      var personIds = Array.from(new Set(persons.map(function (p) { return p.id; }).concat(ties.map(function (t) { return t.personId; }))));
+      var partyNodes = {};
+      personIds.forEach(function (personId, i) {
+        var person = persons.find(function (p) { return p.id === personId; });
+        var personIdKey = "pe:" + personId;
+        addNode({ id: personIdKey, label: person ? person.name : personId, type: "person", x: w * 0.55, y: h * (0.62 + (i - (personIds.length - 1) / 2) * 0.14) });
+        addEdge(companyId, personIdKey, "PUBLIC CONTROL ACTOR");
       });
 
-      visible.forEach(function (d, i) {
-        var col = 2 + (i % 3);
-        var row = Math.floor(i / 3);
-        var cx = w * (0.35 + (col - 2) * 0.22);
-        var cy = h * (0.18 + row * 0.2);
-        var cid = "co:" + d.id;
-        nodes.push({ id: cid, label: d.name.replace(/^PT /, ""), type: "company", ref: d.id, x: cx, y: cy });
-
-        // Detection cluster proxy
-        var did = "det:" + d.id;
-        nodes.push({
-          id: did, label: "WALHI " + d.walhiHotspots, type: "detection",
-          x: cx + 40, y: cy - 55
-        });
-        edges.push({ from: did, to: cid, label: "KLAIM_OVERLAY" });
-
-        (d.control.persons || []).forEach(function (p, pi) {
-          var pid = "pe:" + p.id;
-          if (!nodes.some(function (n) { return n.id === pid; })) {
-            nodes.push({
-              id: pid, label: p.name.split(" ")[0], type: "person",
-              x: cx - 30 + pi * 50, y: cy + 70
-            });
-          }
-          edges.push({ from: cid, to: pid, label: "KONTROL" });
-        });
-
-        (d.politicalTies || []).forEach(function (t) {
-          var partyKey = Object.keys(partyNodes).find(function (k) {
-            return t.party.indexOf(k.split(" ")[0]) !== -1 || t.party.indexOf("Kabinet") !== -1 && k.indexOf("Kabinet") !== -1;
-          });
-          if (!partyKey) return;
+      ties.forEach(function (t, i) {
+        var party = t.party || "POLITICAL TIE UNKNOWN";
+        var partyId = "party:" + party;
+        if (!partyNodes[party]) {
+          partyNodes[party] = addNode({ id: partyId, label: party, type: "party", x: w * 0.82, y: h * (0.24 + Object.keys(partyNodes).length * 0.24) });
+        }
+        if (t.personId) {
           var personNode = "pe:" + t.personId;
-          if (!nodes.some(function (n) { return n.id === personNode; })) {
-            nodes.push({
-              id: personNode, label: t.personId, type: "person",
-              x: cx, y: cy + 70
-            });
-            edges.push({ from: cid, to: personNode, label: "KONTROL" });
+          if (!added[personNode]) {
+            addNode({ id: personNode, label: t.personId, type: "person", x: w * 0.55, y: h * (0.62 + i * 0.14) });
+            addEdge(companyId, personNode, "DOCUMENTED ACTOR");
           }
-          edges.push({ from: personNode, to: partyNodes[partyKey], label: "IKATAN" });
-        });
+          addEdge(personNode, partyId, String(t.type || "POLITICAL RELATION").toUpperCase());
+        }
       });
 
       // Simple repulsion pass
@@ -954,8 +1197,8 @@
           }
         }
         nodes.forEach(function (n) {
-          n.x = Math.max(40, Math.min(w - 40, n.x));
-          n.y = Math.max(30, Math.min(h - 30, n.y));
+            n.x = Math.max(60, Math.min(w - 60, n.x));
+            n.y = Math.max(30, Math.min(h - 30, n.y));
         });
       }
 
@@ -975,11 +1218,11 @@
       }).join("");
 
       var nodeSvg = nodes.map(function (n) {
-        var fill = n.type === "party" ? "#e3a008" : n.type === "company" ? "#1a1a1a" : n.type === "person" ? "#121212" : "#2a1010";
-        var stroke = n.type === "party" ? "#e3a008" : n.type === "detection" ? "#e23a14" : "#2a2a2a";
+        var fill = n.type === "party" ? "#e3a008" : n.type === "company" ? "#1a1a1a" : n.type === "group" ? "#171717" : n.type === "person" ? "#121212" : "#2a1010";
+        var stroke = n.type === "party" ? "#e3a008" : n.type === "detection" ? "#e23a14" : n.type === "group" ? "#b5a16e" : "#2a2a2a";
         if (n.type === "party" && /Gerindra/i.test(n.label)) { fill = "#3a1010"; stroke = "#c62828"; }
-        var r = n.type === "company" ? 22 : n.type === "party" ? 18 : 14;
-        var hi = focusId && n.ref === focusId ? ' stroke-width="2" stroke="#e3a008"' : ' stroke-width="1"';
+        var r = n.type === "company" ? 24 : n.type === "party" ? 18 : n.type === "group" ? 19 : 14;
+        var hi = n.ref === focus.id ? ' stroke-width="2" stroke="#fff"' : ' stroke-width="1"';
         return (
           '<g class="gnode" data-type="' + n.type + '" data-ref="' + (n.ref || "") + '" data-id="' + n.id + '" style="cursor:pointer">' +
             '<circle cx="' + n.x + '" cy="' + n.y + '" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '"' + hi + "/>" +
@@ -1001,25 +1244,29 @@
             var label = g.querySelector("text").textContent;
             elInsp.innerHTML =
               '<div class="insp-title">' + escapeHtml(label) + "</div>" +
-              '<div class="insp-id">PARTY · hub graf</div>' +
-              '<div class="caveat">Partai adalah lensa navigasi (ADR 002), bukan bukti pembakaran hutan.</div>' +
-              '<p style="font-size:14px;line-height:1.4">Filter browser ke ikatan terkait, atau klik perusahaan yang terhubung via tepi IKATAN.</p>';
+              '<div class="insp-subtitle">Public political context</div>' +
+              '<div class="insp-id">PARTY · network context</div>' +
+              '<div class="caveat">Partai adalah lensa navigasi dan konteks sumber publik, bukan bukti pembakaran hutan.</div>' +
+              '<p style="font-size:14px;line-height:1.4">Relasi harus dibaca bersama actor, tipe hubungan, periode, dan sumbernya.</p>';
             if (/Golkar/i.test(label)) document.getElementById("f-party").value = "Golkar";
             if (/Gerindra/i.test(label)) document.getElementById("f-party").value = "Gerindra";
             state.party = document.getElementById("f-party").value;
             renderList();
             refreshConcessionMarkers();
-            drawGraph(focusId);
+            drawGraph(focus.id);
+          } else if (type === "group") {
+            showCompany(focus);
           } else if (type === "detection") {
             elInsp.innerHTML =
-              '<div class="insp-title">DetectionCluster (proxy)</div>' +
-              '<div class="insp-id">DET · overlay</div>' +
-              '<div class="caveat">Node ini merepresentasikan angka hotspot klaim WALHI pada konsesi — bukan titik FIRMS individual.</div>';
+              '<div class="insp-title">WALHI CLAIM</div>' +
+              '<div class="insp-id">CONCESSIONCLAIM · network context</div>' +
+              '<div class="caveat">' + focus.walhiHotspots.toLocaleString("id-ID") + ' reported hotspots adalah klaim WALHI untuk periode terpisah, bukan titik FIRMS individual.</div>';
+            openMobileInspector();
           } else if (type === "person") {
             var pid = g.getAttribute("data-id").replace(/^pe:/, "");
             var found = null, host = null;
             dossiers.forEach(function (d) {
-              (d.control.persons || []).forEach(function (p) {
+              ((d.control && d.control.persons) || []).forEach(function (p) {
                 if (p.id === pid) { found = p; host = d; }
               });
             });
@@ -1030,6 +1277,7 @@
                 '<p style="font-size:14px">' + escapeHtml(found.role) + "</p>" +
                 '<p style="font-size:13px;color:var(--muted)">Terhubung ke <button type="button" id="to-host" class="linkish" style="background:none;border:0;color:var(--amber);cursor:pointer;font:inherit">' +
                 escapeHtml(host.name) + "</button></p>";
+              openMobileInspector();
               document.getElementById("to-host").addEventListener("click", function () { showCompany(host); });
             }
           }
@@ -1045,6 +1293,7 @@
       document.getElementById("map").style.display = mode === "map" ? "block" : "none";
       document.getElementById("graph").style.display = mode === "graph" ? "block" : "none";
       document.getElementById("map-legend").style.display = mode === "map" ? "block" : "none";
+      document.getElementById("findings-banner").style.display = mode === "map" ? "flex" : "none";
       if (mode === "map") {
         setTimeout(function () { map.invalidateSize(); }, 50);
       } else {
@@ -1054,6 +1303,11 @@
 
     document.getElementById("btn-map").addEventListener("click", function () { setMode("map"); });
     document.getElementById("btn-graph").addEventListener("click", function () { setMode("graph"); });
+    document.getElementById("sheet-toggle").addEventListener("click", cycleSheet);
+    document.getElementById("sheet-toggle").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cycleSheet(); }
+    });
+    document.getElementById("mobile-close-inspector").addEventListener("click", closeMobileInspector);
 
     /* ---------- Events ---------- */
     elList.addEventListener("click", function (e) {
@@ -1063,22 +1317,14 @@
       if (d) showCompany(d);
     });
 
-    document.getElementById("temuan").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-focus]");
-      if (!btn) return;
-      var d = dossiers.find(function (x) { return x.id === btn.getAttribute("data-focus"); });
-      if (d) {
-        setMode(state.mode);
-        showCompany(d);
-      }
-    });
-
-    ["f-prov", "f-sector", "f-party", "f-conf"].forEach(function (id) {
+    ["f-prov", "f-sector", "f-party", "f-boundary", "f-conf", "f-platform"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", function (e) {
         if (id === "f-prov") state.prov = e.target.value;
         if (id === "f-sector") state.sector = e.target.value;
         if (id === "f-party") state.party = e.target.value;
+        if (id === "f-boundary") state.boundary = e.target.value;
         if (id === "f-conf") state.conf = e.target.value;
+        if (id === "f-platform") state.platform = e.target.value;
         renderList();
         refreshConcessionMarkers();
         refreshFirmsLayer();
@@ -1099,7 +1345,7 @@
       state.search = e.target.value;
       renderList();
       refreshConcessionMarkers();
-      if (state.mode === "graph") drawGraph(null);
+      if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
     });
 
     elTime.min = 0;
@@ -1123,11 +1369,6 @@
     refreshConcessionMarkers();
     refreshFirmsLayer();
 
-    // Temuan stats live
-    if (walhi) {
-      var stat = document.querySelector("#temuan .stat");
-      if (stat) stat.textContent = walhi.pctInConcession + "%";
-    }
     } // end boot()
   })();
   </script>
