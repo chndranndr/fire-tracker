@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,10 +65,7 @@ def load_json(path: Path) -> dict:
         return json.load(handle)
 
 
-def fetch_csv(url: str) -> list[dict[str, str]]:
-    request = Request(url, headers={"User-Agent": "MERATUS FIRMS pipeline/2"})
-    with urlopen(request, timeout=90) as response:
-        body = response.read()
+def parse_csv_body(body: bytes) -> list[dict[str, str]]:
     text = body.decode("utf-8-sig")
     if not text.strip() or text.lstrip().startswith("<"):
         raise ValueError("FIRMS returned an empty or non-CSV response")
@@ -75,6 +73,42 @@ def fetch_csv(url: str) -> list[dict[str, str]]:
     if not reader.fieldnames or "latitude" not in reader.fieldnames or "longitude" not in reader.fieldnames:
         raise ValueError("FIRMS response is missing latitude/longitude columns")
     return list(reader)
+
+
+def fetch_csv(url: str) -> list[dict[str, str]]:
+    request = Request(url, headers={"User-Agent": "MERATUS FIRMS pipeline/3"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            body = response.read()
+    except (URLError, TimeoutError) as urllib_error:
+        # Some hosted runners prefer an unreachable IPv6 route for the NASA
+        # hostname. Retry over IPv4 without putting the secret in a shell
+        # command; curl is present on GitHub's Ubuntu runner.
+        try:
+            result = subprocess.run(
+                [
+                    "curl",
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--location",
+                    "--ipv4",
+                    "--connect-timeout",
+                    "20",
+                    "--max-time",
+                    "90",
+                    "--user-agent",
+                    "MERATUS FIRMS pipeline/3",
+                    url,
+                ],
+                check=True,
+                capture_output=True,
+                timeout=100,
+            )
+            body = result.stdout
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as curl_error:
+            raise urllib_error from curl_error
+    return parse_csv_body(body)
 
 
 def as_float(row: dict[str, str], key: str) -> float | None:
