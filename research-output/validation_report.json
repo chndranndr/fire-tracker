@@ -1,0 +1,166 @@
+{
+  "ok": true,
+  "featureCount": 6,
+  "counts": {
+    "agm": 2,
+    "bre": 1,
+    "dwima": 1,
+    "kiani": 1,
+    "kpc": 1
+  },
+  "includedDossierIds": [
+    "agm",
+    "bre",
+    "dwima",
+    "kiani",
+    "kpc"
+  ],
+  "excludedHistoricalOfficialRecords": [
+    {
+      "dossierId": "kideco",
+      "reason": "official BIG record is historical/expired; excluded from current dashboard boundary",
+      "operator": "KIDECO JAYA AGUNG",
+      "permit": "250.K/30/DJB/2018",
+      "sourceEndEpochMs": 1678665600000,
+      "sourceAreaHa": 47500,
+      "sourceRecordId": 652
+    },
+    {
+      "dossierId": "adaro",
+      "reason": "official BIG record is historical/expired; excluded from current dashboard boundary",
+      "operator": "ADARO INDONESIA",
+      "permit": "250.K/30/DJB/2017",
+      "sourceEndEpochMs": 1666051200000,
+      "sourceAreaHa": 31379.8,
+      "sourceRecordId": 210
+    }
+  ],
+  "validation": [
+    {
+      "dossierId": "kpc",
+      "name": "PT Kaltim Prima Coal",
+      "sourceOperator": "KALTIM PRIMA COAL",
+      "layerId": 4,
+      "sourceRecordId": 284,
+      "permit": "90/1/IUP/PMA/2021",
+      "sourceAreaHa": 61543,
+      "geometryType": "Polygon",
+      "bounds": [
+        117.336169444,
+        0.53333333300003,
+        117.64478222200012,
+        0.8582208330000753
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    },
+    {
+      "dossierId": "agm",
+      "name": "PT Antang Gunung Meratus",
+      "sourceOperator": "ANTANG GUNUNG MERATUS",
+      "layerId": 4,
+      "sourceRecordId": 554,
+      "permit": "080.K/40.00/MEM/2003",
+      "sourceAreaHa": 20666,
+      "geometryType": "MultiPolygon",
+      "bounds": [
+        115.10805600000003,
+        -3.1124999999999545,
+        115.4738880000001,
+        -2.5630559999999605
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    },
+    {
+      "dossierId": "agm",
+      "name": "PT Antang Gunung Meratus",
+      "sourceOperator": "ANTANG GUNUNG MERATUS",
+      "layerId": 4,
+      "sourceRecordId": 647,
+      "permit": "405.K/20.01/DJP/1999",
+      "sourceAreaHa": 1767,
+      "geometryType": "MultiPolygon",
+      "bounds": [
+        115.22694400000012,
+        -3.0874999999999773,
+        115.33222200000012,
+        -2.766666999999927
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    },
+    {
+      "dossierId": "bre",
+      "name": "PT Bhumi Rantau Energi",
+      "sourceOperator": "BHUMI RANTAU ENERGI",
+      "layerId": 4,
+      "sourceRecordId": 54,
+      "permit": "503/791/DPMPTSP/IV/10/2018",
+      "sourceAreaHa": 2096,
+      "geometryType": "Polygon",
+      "bounds": [
+        115.20111100000008,
+        -2.949999999999932,
+        115.25000000000011,
+        -2.915277999999944
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    },
+    {
+      "dossierId": "dwima",
+      "name": "PT Dwima Intiga",
+      "sourceOperator": "PT DWIMA INTIGA",
+      "layerId": 2,
+      "sourceRecordId": 15,
+      "permit": "12/1/IUPHHK-HTI/PMDN/2016",
+      "sourceAreaHa": 9140,
+      "geometryType": "MultiPolygon",
+      "bounds": [
+        115.2127324710001,
+        -3.0322222299999453,
+        115.36961247600004,
+        -2.849936983999953
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    },
+    {
+      "dossierId": "kiani",
+      "name": "PT Kiani Lestari",
+      "sourceOperator": "PT KIANI LESTARI",
+      "layerId": 1,
+      "sourceRecordId": 101,
+      "permit": "SK.434/Menhut-II/2012",
+      "sourceAreaHa": 134950,
+      "geometryType": "MultiPolygon",
+      "bounds": [
+        116.69555971900002,
+        0.5548109980000504,
+        117.33672411600003,
+        1.2145775860000754
+      ],
+      "isValid": true,
+      "validity": "Valid Geometry",
+      "isEmpty": false,
+      "bboxWithinIndonesianKalimantanScreen": true,
+      "coordinateDimensions": 2
+    }
+  ]
+}
