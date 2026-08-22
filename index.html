@@ -61,11 +61,6 @@
       grid-template-columns: 280px 1fr 320px;
       min-height: 0;
     }
-    @media (max-width: 960px) {
-      .main { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; }
-      .inspector { max-height: 40vh; }
-    }
-
     .panel {
       background: var(--panel); border-right: 1px solid var(--line);
       display: flex; flex-direction: column; min-height: 0; overflow: hidden;
@@ -209,6 +204,74 @@
       position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2;
       font-size: 12px; letter-spacing: 0.08em; color: var(--muted); pointer-events: none;
       background: rgba(9,9,9,0.7); padding: 4px 10px; border: 1px solid var(--line);
+    }
+
+    @media (max-width: 960px) {
+      html, body { overflow-x: hidden; }
+      .app {
+        height: auto; min-width: 0; overflow-x: hidden;
+        grid-template-rows: auto auto clamp(40px, 6vh, 48px);
+      }
+      .topbar { min-width: 0; gap: 8px; padding-inline: 10px; overflow: hidden; }
+      .callsign { flex: 0 0 auto; }
+      .topbar .stamp {
+        flex: 1 1 0; min-width: 0; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
+      }
+      .mode-toggle { flex: 0 0 auto; margin-left: 0; }
+      .mode-toggle button { padding: 5px 10px; }
+
+      .main {
+        width: 100%; min-width: 0;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto clamp(335px, 48vh, 360px) clamp(170px, 26vh, 220px);
+      }
+      .main > .panel:first-child { min-width: 0; min-height: 0; }
+      .main > .panel:first-child .panel-h { padding: 7px 10px 6px; }
+      .main > .panel:first-child .panel-body { overflow: hidden; padding: 6px 10px 8px; }
+      .main > .panel:first-child .search { margin-bottom: 6px; padding: 7px 8px; }
+      .main > .panel:first-child .filters {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px 6px; margin-bottom: 0;
+      }
+      .main > .panel:first-child .filters label:nth-child(n+3),
+      .main > .panel:first-child .layer-toggles,
+      .main > .panel:first-child .temuan,
+      .main > .panel:first-child .panel-body > .panel-h,
+      .main > .panel:first-child .obj-list { display: none; }
+      .main > .panel:first-child .filters select { min-width: 0; padding: 5px 6px; }
+
+      .canvas-wrap { width: 100%; min-width: 0; height: 100%; min-height: 0; }
+      #map, #graph { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+      .inspector {
+        width: 100%; min-width: 0; min-height: 0; max-height: none;
+        border-left: 0; border-top: 1px solid var(--line);
+      }
+      .inspector .panel-h { padding: 7px 10px 6px; }
+      .inspector .panel-body {
+        min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
+        overflow-wrap: anywhere; padding: 8px 10px 12px;
+      }
+
+      .scrubber {
+        min-width: 0; height: 100%; min-height: 0; overflow: hidden;
+        gap: 8px; padding-inline: 10px;
+      }
+      .scrubber label { flex: 0 0 auto; font-size: 10px; letter-spacing: 0.08em; }
+      .scrubber input[type="range"] { min-width: 0; }
+      .scrubber .date-label {
+        flex: 0 1 120px; min-width: 0; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .topbar { gap: 6px; padding-inline: 8px; }
+      .callsign { font-size: 14px; letter-spacing: 0.1em; }
+      .topbar .stamp { font-size: 10px; }
+      .mode-toggle button { padding-inline: 8px; font-size: 12px; }
+      .scrubber { padding-inline: 8px; }
+      .scrubber .date-label { flex-basis: 96px; }
     }
   </style>
 </head>
@@ -1048,7 +1111,11 @@
     });
 
     window.addEventListener("resize", function () {
-      if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
+      if (state.mode === "map") {
+        setTimeout(function () { map.invalidateSize(); }, 50);
+      } else {
+        drawGraph(state.selectedType === "company" ? state.selectedId : null);
+      }
     });
 
     /* ---------- Init ---------- */
