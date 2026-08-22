@@ -47,7 +47,6 @@ jobs:
           path = Path("index.html")
           source = path.read_bytes()
           marker = b"/* spatial proximity helpers */"
-          changed = False
           if marker not in source:
               old_lines = [
                   b"    function nearestConcession(lat, lon) {",
@@ -97,18 +96,14 @@ jobs:
                   b"",
                   b"    function pointInBoundaryPolygon(lon, lat, polygon) {",
                   b"      if (!polygon || !polygon.length || !pointInBoundaryRing(lon, lat, polygon[0])) return false;",
-                  b"      for (var i = 1; i < polygon.length; i++) {",
-                  b"        if (pointInBoundaryRing(lon, lat, polygon[i])) return false;",
-                  b"      }",
+                  b"      for (var i = 1; i < polygon.length; i++) { if (pointInBoundaryRing(lon, lat, polygon[i])) return false; }",
                   b"      return true;",
                   b"    }",
                   b"",
                   b"    function pointInBoundaryGeometry(lon, lat, geometry) {",
                   b"      if (!geometry) return false;",
                   b"      if (geometry.type === \"Polygon\") return pointInBoundaryPolygon(lon, lat, geometry.coordinates || []);",
-                  b"      if (geometry.type === \"MultiPolygon\") {",
-                  b"        return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(lon, lat, polygon); });",
-                  b"      }",
+                  b"      if (geometry.type === \"MultiPolygon\") return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(lon, lat, polygon); });",
                   b"      return false;",
                   b"    }",
                   b"",
@@ -127,21 +122,16 @@ jobs:
                   b"    function boundaryRingDistanceKm(lat, lon, ring) {",
                   b"      var best = Infinity;",
                   b"      if (!ring || ring.length < 2) return best;",
-                  b"      for (var i = 0; i < ring.length; i++) {",
-                  b"        best = Math.min(best, pointToBoundarySegmentKm(lat, lon, ring[i], ring[(i + 1) % ring.length]));",
-                  b"      }",
+                  b"      for (var i = 0; i < ring.length; i++) best = Math.min(best, pointToBoundarySegmentKm(lat, lon, ring[i], ring[(i + 1) % ring.length]));",
                   b"      return best;",
                   b"    }",
                   b"",
                   b"    function boundaryGeometryDistanceKm(lat, lon, geometry) {",
                   b"      if (!geometry) return Infinity;",
                   b"      if (pointInBoundaryGeometry(lon, lat, geometry)) return 0;",
-                  b"      var polygons = geometry.type === \"Polygon\" ? [geometry.coordinates || []] :",
-                  b"        (geometry.type === \"MultiPolygon\" ? (geometry.coordinates || []) : []);",
+                  b"      var polygons = geometry.type === \"Polygon\" ? [geometry.coordinates || []] : (geometry.type === \"MultiPolygon\" ? (geometry.coordinates || []) : []);",
                   b"      var best = Infinity;",
-                  b"      polygons.forEach(function (polygon) {",
-                  b"        polygon.forEach(function (ring) { best = Math.min(best, boundaryRingDistanceKm(lat, lon, ring)); });",
-                  b"      });",
+                  b"      polygons.forEach(function (polygon) { polygon.forEach(function (ring) { best = Math.min(best, boundaryRingDistanceKm(lat, lon, ring)); }); });",
                   b"      return best;",
                   b"    }",
                   b"",
@@ -151,9 +141,7 @@ jobs:
                   b"    }",
                   b"",
                   b"    function nearestConcession(lat, lon) {",
-                  b"      var inside = null;",
-                  b"      var nearestBoundary = null;",
-                  b"      var nearestBoundaryKm = Infinity;",
+                  b"      var inside = null, nearestBoundary = null, nearestBoundaryKm = Infinity;",
                   b"      dossiers.forEach(function (d) {",
                   b"        (boundaryById[d.id] || []).forEach(function (feature) {",
                   b"          var geometry = feature.geometry;",
@@ -168,14 +156,12 @@ jobs:
                   b"      });",
                   b"      if (inside) {",
                   b"        var insideResult = Object.assign({}, inside.dossier);",
-                  b"        insideResult._proximity = { relation: \"inside\", distanceKm: 0, quality: inside.quality,",
-                  b"          label: \"Titik berada di dalam boundary \" + inside.quality + \". Overlap spasial saja — bukan bukti perusahaan menyebabkan kebakaran.\" };",
+                  b"        insideResult._proximity = { relation: \"inside\", distanceKm: 0, quality: inside.quality, label: \"Titik berada di dalam boundary \" + inside.quality + \". Overlap spasial saja - bukan bukti perusahaan menyebabkan kebakaran.\" };",
                   b"        return insideResult;",
                   b"      }",
                   b"      if (nearestBoundary && nearestBoundaryKm <= 150) {",
                   b"        var boundaryResult = Object.assign({}, nearestBoundary.dossier);",
-                  b"        boundaryResult._proximity = { relation: \"boundary\", distanceKm: nearestBoundaryKm, quality: nearestBoundary.quality,",
-                  b"          label: \"Boundary konsesi terdekat · ~\" + Math.round(nearestBoundaryKm) + \" km dari tepi polygon \" + nearestBoundary.quality + \". Kedekatan bukan bukti atribusi.\" };",
+                  b"        boundaryResult._proximity = { relation: \"boundary\", distanceKm: nearestBoundaryKm, quality: nearestBoundary.quality, label: \"Boundary konsesi terdekat - ~\" + Math.round(nearestBoundaryKm) + \" km dari tepi polygon \" + nearestBoundary.quality + \". Kedekatan bukan bukti atribusi.\" };",
                   b"        return boundaryResult;",
                   b"      }",
                   b"      var fallback = null, fallbackKm = Infinity;",
@@ -188,23 +174,19 @@ jobs:
                   b"      });",
                   b"      if (!fallback || fallbackKm > 150) return null;",
                   b"      var fallbackResult = Object.assign({}, fallback);",
-                  b"      fallbackResult._proximity = { relation: \"centroid\", distanceKm: fallbackKm, quality: null,",
-                  b"        label: \"Boundary belum tersedia · ~\" + Math.round(fallbackKm) + \" km dari centroid lokasi dossier. Ini hanya fallback navigasi.\" };",
+                  b"      fallbackResult._proximity = { relation: \"centroid\", distanceKm: fallbackKm, quality: null, label: \"Boundary belum tersedia - ~\" + Math.round(fallbackKm) + \" km dari centroid lokasi dossier. Ini hanya fallback navigasi.\" };",
                   b"      return fallbackResult;",
                   b"    }",
                   b"    /* end spatial proximity helpers */",
               ]
               source = source.replace(old, newline.join(new_lines), 1)
               old_phrase = b"Konsesi terdekat (jarak centroid kasar) \xe2\x80\x94 <strong>bukan join GIS</strong>."
-              if source.count(old_phrase) != 1:
-                  raise SystemExit("expected centroid explanation not found exactly once")
+              if source.count(old_phrase) != 1: raise SystemExit("expected centroid explanation not found exactly once")
               source = source.replace(old_phrase, b"' + escapeHtml(nearest._proximity.label) + '", 1)
               old_empty = b"Tidak ada centroid dossier dalam radius kasar."
-              if source.count(old_empty) != 1:
-                  raise SystemExit("expected empty proximity explanation not found exactly once")
+              if source.count(old_empty) != 1: raise SystemExit("expected empty proximity explanation not found exactly once")
               source = source.replace(old_empty, b"Tidak ada boundary/centroid dossier dalam radius 150 km.", 1)
               path.write_bytes(source)
-              changed = True
 
           docs = Path("docs/methodology.md")
           docs_bytes = docs.read_bytes()
@@ -212,7 +194,6 @@ jobs:
           new_docs = "- Klik titik → inspector Detection saja; asosiasi spasial memakai urutan **point-in-polygon boundary**, jarak ke **tepi polygon terdekat**, lalu **centroid fallback** hanya untuk dossier tanpa boundary. Kedekatan atau overlap tetap **bukan atribusi kebakaran**.".encode("utf-8")
           if old_docs in docs_bytes:
               docs.write_bytes(docs_bytes.replace(old_docs, new_docs, 1))
-              changed = True
           elif new_docs not in docs_bytes:
               raise SystemExit("expected methodology proximity sentence not found")
           PY
@@ -242,8 +223,7 @@ jobs:
           import json
           from pathlib import Path
           for path in (Path("data/firms.json"), Path("data/dossiers.json"), Path("data/boundaries.geojson"), Path("data/kalimantan-indonesia.geojson")):
-              with path.open(encoding="utf-8") as handle:
-                  json.load(handle)
+              with path.open(encoding="utf-8") as handle: json.load(handle)
           html = Path("index.html").read_text(encoding="utf-8")
           assert 'pointInBoundaryGeometry' in html
           assert 'boundaryGeometryDistanceKm' in html
@@ -268,19 +248,12 @@ jobs:
         env:
           SHOULD_PUBLISH: ${{ steps.publish-mode.outputs.should_publish }}
         run: |
-          if [ "$SHOULD_PUBLISH" != "true" ]; then
-            echo "Validation-only live run: no commit, push, or production Pages deploy."
-            git status --short
-            exit 0
-          fi
+          if [ "$SHOULD_PUBLISH" != "true" ]; then echo "Validation-only live run: no publish."; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/firms.json data/firms-status.json
           if [ -d archive/firms ]; then git add archive/firms; fi
-          if git diff --cached --quiet; then echo "No FIRMS or status changes to publish."; else
-            git commit -m "chore(data): refresh FIRMS NRT dataset"
-            git push origin HEAD:main
-          fi
+          if ! git diff --cached --quiet; then git commit -m "chore(data): refresh FIRMS NRT dataset" && git push origin HEAD:main; fi
 
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
