@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "featureCount": 9,
+  "counts": {
+    "agm": 2,
+    "bre": 1,
+    "bsg": 1,
+    "dwima": 1,
+    "kiani": 1,
+    "kpc": 1,
+    "lar": 1,
+    "sum": 1
+  },
+  "includedGfw": [
+    {
+      "dossierId": "bsg",
+      "sourceCompany": "PT. Bagus Sentosa Gemilang",
+      "sourceObjectId": 24,
+      "gfwid": "50b95966-c22f-419e-8ce5-de2e39ac10f7",
+      "sourceLegalStatus": "Ijin Lokasi",
+      "areaHa": 23095,
+      "poAreaHgu": 7500,
+      "groupCompany": "Kaestindo Group",
+      "geometryType": "Polygon",
+      "bounds": [
+        117.51953467694521,
+        0.5499758799983061,
+        117.73222134512243,
+        0.7624981959846936
+      ],
+      "valid": true,
+      "coordinateDimensions": 2,
+      "matchNote": "exact company-name match after PT/punctuation normalization"
+    },
+    {
+      "dossierId": "lar",
+      "sourceCompany": "PT. Lestari Alam Raya",
+      "sourceObjectId": 806,
+      "gfwid": "f7a74034-7e32-4ada-8bea-8d26b6d426dd",
+      "sourceLegalStatus": "not populated in GFW attributes",
+      "areaHa": 13958,
+      "poAreaHgu": 0,
+      "groupCompany": "No group",
+      "geometryType": "Polygon",
+      "bounds": [
+        108.95999145490981,
+        0.5325132601032612,
+        109.13953399645015,
+        0.6816612480225916
+      ],
+      "valid": true,
+      "coordinateDimensions": 2,
+      "matchNote": "exact company-name match after PT/punctuation normalization"
+    },
+    {
+      "dossierId": "sum",
+      "sourceCompany": "PT. Sumatra Unggul Makmur",
+      "sourceObjectId": 869,
+      "gfwid": "ca36af51-edef-47e3-b6d3-4be4452a3c48",
+      "sourceLegalStatus": "not populated in GFW attributes",
+      "areaHa": 13581,
+      "poAreaHgu": 0,
+      "groupCompany": "Ganda Group",
+      "geometryType": "Polygon",
+      "bounds": [
+        109.0794067379413,
+        1.012296437374914,
+        109.22994232232624,
+        1.1677845722819944
+      ],
+      "valid": true,
+      "coordinateDimensions": 2,
+      "matchNote": "source spells company PT. Sumatra Unggul Makmur; matched to dossier PT Sumatera Unggul Makmur as Sumatra/Sumatera spelling variant; Sambas + Ganda Group independently corroborated"
+    }
+  ],
+  "excludedAmbiguousGfw": [
+    {
+      "dossierId": "thm1",
+      "reason": "GFW source company is only PT. Tri H.M without suffix 1/2; records cannot be safely assigned to dossier-specific IDs",
+      "sourceCompany": "PT. Tri H.M",
+      "sourceObjectId": 824,
+      "gfwid": "cfe2d453-493d-4aba-b4ae-5fcf47225ed7"
+    },
+    {
+      "dossierId": "thm2",
+      "reason": "GFW source company is only PT. Tri H.M without suffix 1/2; records cannot be safely assigned to dossier-specific IDs",
+      "sourceCompany": "PT. Tri H.M",
+      "sourceObjectId": 972,
+      "gfwid": "7cfc5a65-b668-472a-aec7-2e626612ca32"
+    }
+  ],
+  "emptyDossierIds": [
+    "adaro",
+    "kideco",
+    "thm1",
+    "thm2"
+  ]
+}
