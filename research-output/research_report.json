@@ -1,0 +1,24 @@
+{
+  "big": {
+    "errors": [],
+    "matches": {
+      "kideco": 1,
+      "kpc": 1,
+      "agm": 2,
+      "bre": 1,
+      "adaro": 1,
+      "dwima": 1,
+      "kiani": 1
+    }
+  },
+  "gfw": {
+    "errors": [
+      {
+        "url": "https://gfw2-data.s3.amazonaws.com/country/idn/zip/idn_oil_palm.zip",
+        "error": "<HTTPError 403: 'Forbidden'>"
+      }
+    ],
+    "files": [],
+    "matches": {}
+  }
+}
