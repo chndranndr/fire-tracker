@@ -29,183 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Apply polygon-aware hotspot proximity fix
-        if: github.event_name == 'pull_request'
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("index.html")
-          source = path.read_bytes()
-          marker = b"/* spatial proximity helpers */"
-          if marker not in source:
-              old_lines = [
-                  b"    function nearestConcession(lat, lon) {",
-                  b"      var best = null, bestD = Infinity;",
-                  b"      dossiers.forEach(function (d) {",
-                  b"        var dy = d.centroid[0] - lat;",
-                  b"        var dx = (d.centroid[1] - lon) * Math.cos(lat * Math.PI / 180);",
-                  b"        var dist = Math.sqrt(dx * dx + dy * dy);",
-                  b"        if (dist < bestD) { bestD = dist; best = d; }",
-                  b"      });",
-                  b"      return bestD < 1.5 ? best : null;",
-                  b"    }",
-              ]
-              old = None
-              newline = None
-              for candidate_newline in (b"\r\n", b"\n"):
-                  candidate = candidate_newline.join(old_lines)
-                  if source.count(candidate) == 1:
-                      old = candidate
-                      newline = candidate_newline
-                      break
-              if old is None:
-                  raise SystemExit("expected centroid-only nearestConcession block not found exactly once")
-
-              new_lines = [
-                  b"    /* spatial proximity helpers */",
-                  b"    function pointOnBoundarySegment(lon, lat, a, b) {",
-                  b"      var cross = (lon - a[0]) * (b[1] - a[1]) - (lat - a[1]) * (b[0] - a[0]);",
-                  b"      if (Math.abs(cross) > 1e-10) return false;",
-                  b"      return lon >= Math.min(a[0], b[0]) - 1e-10 && lon <= Math.max(a[0], b[0]) + 1e-10 &&",
-                  b"        lat >= Math.min(a[1], b[1]) - 1e-10 && lat <= Math.max(a[1], b[1]) + 1e-10;",
-                  b"    }",
-                  b"",
-                  b"    function pointInBoundaryRing(lon, lat, ring) {",
-                  b"      if (!ring || ring.length < 3) return false;",
-                  b"      var inside = false;",
-                  b"      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {",
-                  b"        var a = ring[j], b = ring[i];",
-                  b"        if (pointOnBoundarySegment(lon, lat, a, b)) return true;",
-                  b"        if ((a[1] > lat) !== (b[1] > lat)) {",
-                  b"          var crossingLon = (b[0] - a[0]) * (lat - a[1]) / (b[1] - a[1]) + a[0];",
-                  b"          if (lon < crossingLon) inside = !inside;",
-                  b"        }",
-                  b"      }",
-                  b"      return inside;",
-                  b"    }",
-                  b"",
-                  b"    function pointInBoundaryPolygon(lon, lat, polygon) {",
-                  b"      if (!polygon || !polygon.length || !pointInBoundaryRing(lon, lat, polygon[0])) return false;",
-                  b"      for (var i = 1; i < polygon.length; i++) { if (pointInBoundaryRing(lon, lat, polygon[i])) return false; }",
-                  b"      return true;",
-                  b"    }",
-                  b"",
-                  b"    function pointInBoundaryGeometry(lon, lat, geometry) {",
-                  b"      if (!geometry) return false;",
-                  b"      if (geometry.type === \"Polygon\") return pointInBoundaryPolygon(lon, lat, geometry.coordinates || []);",
-                  b"      if (geometry.type === \"MultiPolygon\") return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(lon, lat, polygon); });",
-                  b"      return false;",
-                  b"    }",
-                  b"",
-                  b"    function pointToBoundarySegmentKm(lat, lon, a, b) {",
-                  b"      var kmLat = 110.574;",
-                  b"      var kmLon = 111.320 * Math.cos(lat * Math.PI / 180);",
-                  b"      var ax = (a[0] - lon) * kmLon, ay = (a[1] - lat) * kmLat;",
-                  b"      var bx = (b[0] - lon) * kmLon, by = (b[1] - lat) * kmLat;",
-                  b"      var dx = bx - ax, dy = by - ay;",
-                  b"      var denom = dx * dx + dy * dy;",
-                  b"      var t = denom ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / denom)) : 0;",
-                  b"      var qx = ax + t * dx, qy = ay + t * dy;",
-                  b"      return Math.sqrt(qx * qx + qy * qy);",
-                  b"    }",
-                  b"",
-                  b"    function boundaryRingDistanceKm(lat, lon, ring) {",
-                  b"      var best = Infinity;",
-                  b"      if (!ring || ring.length < 2) return best;",
-                  b"      for (var i = 0; i < ring.length; i++) best = Math.min(best, pointToBoundarySegmentKm(lat, lon, ring[i], ring[(i + 1) % ring.length]));",
-                  b"      return best;",
-                  b"    }",
-                  b"",
-                  b"    function boundaryGeometryDistanceKm(lat, lon, geometry) {",
-                  b"      if (!geometry) return Infinity;",
-                  b"      if (pointInBoundaryGeometry(lon, lat, geometry)) return 0;",
-                  b"      var polygons = geometry.type === \"Polygon\" ? [geometry.coordinates || []] : (geometry.type === \"MultiPolygon\" ? (geometry.coordinates || []) : []);",
-                  b"      var best = Infinity;",
-                  b"      polygons.forEach(function (polygon) { polygon.forEach(function (ring) { best = Math.min(best, boundaryRingDistanceKm(lat, lon, ring)); }); });",
-                  b"      return best;",
-                  b"    }",
-                  b"",
-                  b"    function boundaryQualityRank(value) {",
-                  b"      var quality = normalizeBoundaryQuality(value);",
-                  b"      return quality === \"OFFICIAL\" ? 3 : quality === \"GFW\" ? 2 : 1;",
-                  b"    }",
-                  b"",
-                  b"    function nearestConcession(lat, lon) {",
-                  b"      var inside = null, nearestBoundary = null, nearestBoundaryKm = Infinity;",
-                  b"      dossiers.forEach(function (d) {",
-                  b"        (boundaryById[d.id] || []).forEach(function (feature) {",
-                  b"          var geometry = feature.geometry;",
-                  b"          var quality = normalizeBoundaryQuality(feature.properties && feature.properties.quality);",
-                  b"          if (pointInBoundaryGeometry(lon, lat, geometry)) {",
-                  b"            if (!inside || boundaryQualityRank(quality) > boundaryQualityRank(inside.quality)) inside = { dossier: d, quality: quality };",
-                  b"            return;",
-                  b"          }",
-                  b"          var distanceKm = boundaryGeometryDistanceKm(lat, lon, geometry);",
-                  b"          if (distanceKm < nearestBoundaryKm) { nearestBoundaryKm = distanceKm; nearestBoundary = { dossier: d, quality: quality }; }",
-                  b"        });",
-                  b"      });",
-                  b"      if (inside) {",
-                  b"        var insideResult = Object.assign({}, inside.dossier);",
-                  b"        insideResult._proximity = { relation: \"inside\", distanceKm: 0, quality: inside.quality, label: \"Titik berada di dalam boundary \" + inside.quality + \". Overlap spasial saja - bukan bukti perusahaan menyebabkan kebakaran.\" };",
-                  b"        return insideResult;",
-                  b"      }",
-                  b"      if (nearestBoundary && nearestBoundaryKm <= 150) {",
-                  b"        var boundaryResult = Object.assign({}, nearestBoundary.dossier);",
-                  b"        boundaryResult._proximity = { relation: \"boundary\", distanceKm: nearestBoundaryKm, quality: nearestBoundary.quality, label: \"Boundary konsesi terdekat - ~\" + Math.round(nearestBoundaryKm) + \" km dari tepi polygon \" + nearestBoundary.quality + \". Kedekatan bukan bukti atribusi.\" };",
-                  b"        return boundaryResult;",
-                  b"      }",
-                  b"      var fallback = null, fallbackKm = Infinity;",
-                  b"      dossiers.forEach(function (d) {",
-                  b"        if ((boundaryById[d.id] || []).length || !d.centroid) return;",
-                  b"        var dy = (d.centroid[0] - lat) * 110.574;",
-                  b"        var dx = (d.centroid[1] - lon) * 111.320 * Math.cos(lat * Math.PI / 180);",
-                  b"        var distanceKm = Math.sqrt(dx * dx + dy * dy);",
-                  b"        if (distanceKm < fallbackKm) { fallbackKm = distanceKm; fallback = d; }",
-                  b"      });",
-                  b"      if (!fallback || fallbackKm > 150) return null;",
-                  b"      var fallbackResult = Object.assign({}, fallback);",
-                  b"      fallbackResult._proximity = { relation: \"centroid\", distanceKm: fallbackKm, quality: null, label: \"Boundary belum tersedia - ~\" + Math.round(fallbackKm) + \" km dari centroid lokasi dossier. Ini hanya fallback navigasi.\" };",
-                  b"      return fallbackResult;",
-                  b"    }",
-                  b"    /* end spatial proximity helpers */",
-              ]
-              source = source.replace(old, newline.join(new_lines), 1)
-              old_phrase = b"Konsesi terdekat (jarak centroid kasar) \xe2\x80\x94 <strong>bukan join GIS</strong>."
-              if source.count(old_phrase) != 1: raise SystemExit("expected centroid explanation not found exactly once")
-              source = source.replace(old_phrase, b"' + escapeHtml(nearest._proximity.label) + '", 1)
-              old_empty = b"Tidak ada centroid dossier dalam radius kasar."
-              if source.count(old_empty) != 1: raise SystemExit("expected empty proximity explanation not found exactly once")
-              source = source.replace(old_empty, b"Tidak ada boundary/centroid dossier dalam radius 150 km.", 1)
-              path.write_bytes(source)
-
-          docs = Path("docs/methodology.md")
-          docs_bytes = docs.read_bytes()
-          old_docs = "- Klik titik → inspector Detection saja; “konsesi terdekat” dihitung jarak ke **centroid dossier** (kasar), dengan label eksplisit **bukan join GIS**.".encode("utf-8")
-          new_docs = "- Klik titik → inspector Detection saja; asosiasi spasial memakai urutan **point-in-polygon boundary**, jarak ke **tepi polygon terdekat**, lalu **centroid fallback** hanya untuk dossier tanpa boundary. Kedekatan atau overlap tetap **bukan atribusi kebakaran**.".encode("utf-8")
-          if old_docs in docs_bytes:
-              docs.write_bytes(docs_bytes.replace(old_docs, new_docs, 1))
-          elif new_docs not in docs_bytes:
-              raise SystemExit("expected methodology proximity sentence not found")
-          PY
-          if git diff --quiet -- index.html docs/methodology.md; then
-            echo "Spatial proximity logic already patched."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add index.html docs/methodology.md
-            git commit -m "fix: use concession polygons for hotspot proximity"
-            git push origin "HEAD:$HEAD_REF"
-          fi
 
       - name: Determine publish mode
         id: publish-mode
@@ -213,6 +40,8 @@ jobs:
           SHOULD_PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish == true) }}
         run: echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
 
+      # Pull requests must be deterministic. Do not make mergeability depend on
+      # NASA/network availability; live FIRMS checks remain schedule/manual-only.
       - name: Validate FIRMS pipeline offline
         if: github.event_name == 'pull_request'
         run: |
@@ -222,13 +51,24 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          for path in (Path("data/firms.json"), Path("data/dossiers.json"), Path("data/boundaries.geojson"), Path("data/kalimantan-indonesia.geojson")):
-              with path.open(encoding="utf-8") as handle: json.load(handle)
+
+          for path in (
+              Path("data/firms.json"),
+              Path("data/dossiers.json"),
+              Path("data/boundaries.geojson"),
+              Path("data/kalimantan-indonesia.geojson"),
+          ):
+              with path.open(encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"validated {path}")
+
           html = Path("index.html").read_text(encoding="utf-8")
+          assert 'boundary.qualities.indexOf(state.boundary)' in html
+          assert 'boundaryStatus(d).key !== state.boundary' not in html
           assert 'pointInBoundaryGeometry' in html
           assert 'boundaryGeometryDistanceKm' in html
           assert 'jarak centroid kasar' not in html
-          print("validated polygon-aware hotspot proximity wiring")
+          print("validated boundary filters and polygon-aware hotspot proximity")
           PY
 
       - name: Fetch and validate FIRMS
@@ -248,13 +88,25 @@ jobs:
         env:
           SHOULD_PUBLISH: ${{ steps.publish-mode.outputs.should_publish }}
         run: |
-          if [ "$SHOULD_PUBLISH" != "true" ]; then echo "Validation-only live run: no publish."; exit 0; fi
+          if [ "$SHOULD_PUBLISH" != "true" ]; then
+            echo "Validation-only live run: no commit, push, or production Pages deploy."
+            git status --short
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/firms.json data/firms-status.json
           if [ -d archive/firms ]; then git add archive/firms; fi
-          if ! git diff --cached --quiet; then git commit -m "chore(data): refresh FIRMS NRT dataset" && git push origin HEAD:main; fi
+          if git diff --cached --quiet; then
+            echo "No FIRMS or status changes to publish."
+          else
+            git commit -m "chore(data): refresh FIRMS NRT dataset"
+            git push origin HEAD:main
+          fi
 
+      # Upload the exact workspace that was committed above. These steps use
+      # always() so a stale firms-status.json is still published when ingestion
+      # failed; the job is marked failed only after the Pages artifact exists.
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/configure-pages@v5
