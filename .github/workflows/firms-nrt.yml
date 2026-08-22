@@ -3,6 +3,8 @@ name: Refresh FIRMS NRT
 on:
   schedule:
     - cron: "17 * * * *"
+  pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       publish:
