@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: firms-nrt
@@ -14,6 +16,9 @@ concurrency:
 
 jobs:
   ingest:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,3 +54,20 @@ jobs:
       - name: Surface ingestion failure
         if: steps.ingest.outputs.result != '0'
         run: exit 1
+
+      # The data commit above uses GITHUB_TOKEN. GitHub deliberately does not
+      # start another push-triggered workflow for that commit, so deploy the
+      # same validated workspace here instead of relying on pages.yml.
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload refreshed Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy refreshed Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

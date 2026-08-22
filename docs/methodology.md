@@ -46,10 +46,10 @@ Tepi graf di UI berlabel `KLAIM_OVERLAY` / `KONTROL` / `IKATAN` agar relasi tida
 
 1. Ambil lima hari terakhir untuk setiap sumber VIIRS NRT.
 2. Parse baris deteksi (latitude, longitude, bright_ti4/ti5, FRP, tanggal, waktu, satelit, confidence, day/night, dan atribut sensor lain yang tersedia).
-3. **Filter spasial Kalimantan Indonesia:** bbox kasar + coarse exclusion boxes Sarawak/Sabah. Ini bukan polygon administrasi presisi; metadata dataset menyatakan filter yang digunakan.
+3. **Filter spasial Kalimantan Indonesia:** bbox kasar + point-in-polygon terhadap `data/kalimantan-indonesia.geojson`, yang bersumber dari Natural Earth admin-0 countries 1:110m. Rectangle Sarawak/Sabah tidak digunakan karena mencakup wilayah Indonesia di perbatasan.
 4. Normalisasi platform dan confidence ke label UI: `low` / `nominal` / `high`.
 5. Tambahkan `observationId` deterministik dari platform + tanggal/waktu akuisisi + koordinat, lalu hapus hanya record exact-duplicate.
-6. Validasi schema, koordinat, timestamp, platform, non-empty result, dan penurunan count yang mencurigakan.
+6. Validasi schema, koordinat, timestamp, platform, non-empty result, recency per platform, serta penurunan count aggregate dan per platform yang mencurigakan.
 7. Tulis `data/firms.json` dan `data/firms-status.json` hanya jika dataset baru lolos validasi:
 
 ```json
@@ -61,7 +61,9 @@ Tepi graf di UI berlabel `KLAIM_OVERLAY` / `KONTROL` / `IKATAN` agar relasi tida
     "fetched": "YYYY-MM-DD",
     "lastSuccessfulSync": "YYYY-MM-DDTHH:MM:SSZ",
     "newestDetectionUtc": "YYYY-MM-DDTHH:MM:SSZ",
-    "pipelineVersion": "2",
+    "sourceCounts": {"S-NPP": 1234, "NOAA-20": 1234, "NOAA-21": 1234},
+    "sourceObservations": {"S-NPP": {"newestDetectionUtc": "YYYY-MM-DDTHH:MM:SSZ"}},
+    "pipelineVersion": "3",
     "pipelineStatus": "healthy",
     "count": 20500
   },
@@ -112,7 +114,7 @@ Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agus
 
 1. Set repository secret `FIRMS_MAP_KEY`.
 2. Jalankan workflow `Refresh FIRMS NRT` secara manual atau tunggu cron hourly.
-3. Workflow melakukan safe publish ke `data/firms.json`, menulis archive harian, dan memperbarui metadata freshness.
+3. Workflow melakukan safe publish ke `data/firms.json`, menulis archive harian, memperbarui metadata freshness, lalu men-deploy Pages dari workspace yang sama.
 4. Jika fetch atau validasi gagal, workflow menulis `pipelineStatus: stale` ke `data/firms-status.json` dan mempertahankan dataset terakhir yang valid.
 
 ---

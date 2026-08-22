@@ -21,6 +21,7 @@ Jaga agar data di `data/` akurat, bersumber, dan tidak menggabungkan empat lapis
 |------|--------|
 | `data/firms.json` | Refresh deteksi FIRMS |
 | `data/firms-status.json` | Status ingest; jangan hapus saat stale |
+| `data/kalimantan-indonesia.geojson` | Polygon filter administratif Indonesia untuk ingestion; provenance wajib dipertahankan |
 | `data/dossiers.json` | Dossier, WALHI summary, SIPONGI fallback |
 | `data/boundaries.geojson` | Poligon konsesi (hanya geometri berlisensi/sumber jelas) |
 | `docs/methodology.md` | Jika prosedur pengumpulan berubah |
@@ -45,8 +46,8 @@ Hotspot di konsesi ≠ perusahaan menyulut api. Ikatan politik ≠ atribusi api.
 
 1. Untuk pipeline NRT, jalankan `FIRMS_MAP_KEY=… python scripts/ingest_firms.py` atau gunakan workflow `Refresh FIRMS NRT`.
 2. Pipeline mengambil VIIRS S-NPP, NOAA-20, dan NOAA-21 dari FIRMS Area API.
-3. Validasi wajib: schema, koordinat, timestamp, platform, count non-zero, dan penurunan count yang mencurigakan.
-4. Jika validasi gagal, pertahankan `data/firms.json` sebelumnya dan tulis status `stale` ke `data/firms-status.json`.
+3. Validasi wajib: schema, koordinat, timestamp, platform, count non-zero untuk setiap sumber, recency per platform, dan penurunan count aggregate maupun per platform yang mencurigakan.
+4. Jika satu sumber kosong/gagal atau validasi gagal, pertahankan `data/firms.json` sebelumnya dan tulis status `stale` ke `data/firms-status.json`.
 5. Field point mencakup `observationId`, `lat`, `lon`, `b4`, `b5`, `frp`, `date`, `time`, `sat`, `platform`, `conf` (`low`|`nominal`|`high`), `dn`.
 6. Jangan mengubah `walhiHotspots` hanya karena FIRMS berubah (periode & produk beda).
 

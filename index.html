@@ -424,7 +424,7 @@
                   <option value="OFFICIAL">OFFICIAL</option>
                   <option value="GFW">GFW</option>
                   <option value="PERKIRAAN">PERKIRAAN</option>
-                  <option value="NONE">NO BOUNDARY</option>
+                  <option value="none">NO BOUNDARY</option>
                 </select>
               </label>
             </div>
@@ -584,6 +584,7 @@
     function boot(firmsPayload, dossierPayload, boundariesGeo, pipelineStatusPayload) {
     var firms = [];
     var firmsMeta = null;
+    var pipelineStatus = (pipelineStatusPayload && typeof pipelineStatusPayload === "object") ? pipelineStatusPayload : null;
     var usingFallback = false;
     var sipongi = dossierPayload.sipongiFallback || null;
     var dossiers = dossierPayload.dossiers || [];
@@ -666,16 +667,21 @@
         : latestDetectionDate(firms);
       var syncValue = firmsMeta && (firmsMeta.lastSuccessfulSync || firmsMeta.fetched);
       var sourceName = usingFallback ? "SIPONGI fallback" : (/NRT/i.test((firmsMeta && firmsMeta.source) || "") ? "NASA FIRMS NRT" : "NASA FIRMS snapshot");
-      var status = usingFallback ? "fallback" : (firmsMeta && (firmsMeta.pipelineStatus === "stale" || firmsMeta.stale === true) ? "stale" : "healthy");
+      var status = usingFallback ? "fallback" : (pipelineStatus && (pipelineStatus.pipelineStatus === "stale" || pipelineStatus.stale === true)
+        ? "stale"
+        : (firmsMeta && (firmsMeta.pipelineStatus === "stale" || firmsMeta.stale === true) ? "stale" : "healthy"));
       var syncText = syncValue && String(syncValue).indexOf("T") !== -1
         ? "sync " + formatWib(syncValue, true)
         : (syncValue ? "snapshot " + String(syncValue) : "sync time unavailable");
+      var staleSync = pipelineStatus && pipelineStatus.lastSuccessfulSync
+        ? " · last successful sync " + formatWib(pipelineStatus.lastSuccessfulSync, true)
+        : "";
       var newestText = newest && !isNaN(newest.getTime())
         ? " · newest observation " + formatWib(newest, true) + (formatAge(newest) ? " · age " + formatAge(newest) : "")
         : "";
       elStamp.dataset.status = status;
-      elStamp.title = (firmsMeta && firmsMeta.error) || "Pipeline sync and satellite-observation age are tracked separately.";
-      elStamp.textContent = (status === "stale" ? "DATA PIPELINE STALE · " : "") + sourceName + " · " + syncText + newestText;
+      elStamp.title = (pipelineStatus && pipelineStatus.error) || (firmsMeta && firmsMeta.error) || "Pipeline sync and satellite-observation age are tracked separately.";
+      elStamp.textContent = (status === "stale" ? "DATA PIPELINE STALE · " : "") + sourceName + " · " + syncText + staleSync + newestText;
 
       var periodEl = document.getElementById("walhi-period");
       var statEl = document.getElementById("walhi-stat");
@@ -694,10 +700,6 @@
         ? firmsPayload
         : (firmsPayload.points || []);
       firmsMeta = Array.isArray(firmsPayload) ? null : (firmsPayload.meta || null);
-    }
-
-    if (pipelineStatusPayload && typeof pipelineStatusPayload === "object") {
-      firmsMeta = Object.assign({}, firmsMeta || {}, pipelineStatusPayload);
     }
 
     if (!firms.length) {
@@ -756,7 +758,7 @@
         if (state.sector && d.sector !== state.sector) return false;
         if (state.prov && d.province !== state.prov) return false;
         if (!partyMatch(d)) return false;
-        if (state.boundary && boundaryStatus(d).label.indexOf(state.boundary) === -1) return false;
+        if (state.boundary && boundaryStatus(d).key !== state.boundary) return false;
         if (!q) return true;
         var blob = [
           d.id, d.name, d.sector, d.province, d.uboStatus,
