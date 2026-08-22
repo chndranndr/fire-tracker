@@ -1,0 +1,35 @@
+name: Temporary boundary research output
+
+on:
+  push:
+    branches: [research/meratus-boundaries-20260822]
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-persist:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/meratus-boundaries-20260822
+      - name: Fetch public sources
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pyshp
+          rm -rf research-output
+          python scripts/research_boundaries.py
+      - name: Persist research output on research branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add research-output
+          if git diff --cached --quiet; then
+            echo 'No research output changes'
+            exit 0
+          fi
+          git commit -m 'chore: persist boundary research output'
+          git push origin HEAD:research/meratus-boundaries-20260822
