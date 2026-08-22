@@ -29,56 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # One-shot cleanup for PR #2: restore the pre-repair index bytes so the
-      # boundary fix does not normalize unrelated mixed line endings, then
-      # apply only the intended logic change using the original newline style.
-      - name: Normalize boundary fix diff
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          ORIGINAL_INDEX_COMMIT: 78a383609d7499a440d0ea3e1af3a732762de716
-        run: |
-          git fetch --no-tags --depth=1 origin "$ORIGINAL_INDEX_COMMIT"
-          git show "$ORIGINAL_INDEX_COMMIT:index.html" > /tmp/index-before-boundary-fix.html
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          original = Path("/tmp/index-before-boundary-fix.html").read_bytes()
-          path = Path("index.html")
-          old = b'        if (state.boundary && boundaryStatus(d).key !== state.boundary) return false;'
-          if original.count(old) != 1:
-              raise SystemExit("expected original boundary filter line not found exactly once")
-          pos = original.index(old) + len(old)
-          newline = b"\r\n" if original[pos:pos + 2] == b"\r\n" else b"\n"
-          lines = [
-              b'        if (state.boundary) {',
-              b'          var boundary = boundaryStatus(d);',
-              b'          if (state.boundary === "none") {',
-              b'            if (boundary.qualities.length) return false;',
-              b'          } else if (boundary.qualities.indexOf(state.boundary) === -1) {',
-              b'            return false;',
-              b'          }',
-              b'        }',
-          ]
-          path.write_bytes(original.replace(old, newline.join(lines), 1))
-          PY
-          if git diff --quiet -- index.html; then
-            echo "Boundary filter diff already byte-preserving."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add index.html
-            git commit -m "fix: preserve index line endings in boundary filter"
-            git push origin "HEAD:$HEAD_REF"
-          fi
 
       - name: Determine publish mode
         id: publish-mode
@@ -106,6 +60,11 @@ jobs:
               with path.open(encoding="utf-8") as handle:
                   json.load(handle)
               print(f"validated {path}")
+
+          html = Path("index.html").read_text(encoding="utf-8")
+          assert 'boundary.qualities.indexOf(state.boundary)' in html
+          assert 'boundaryStatus(d).key !== state.boundary' not in html
+          print("validated boundary-quality filter wiring")
           PY
 
       - name: Fetch and validate FIRMS
