@@ -100,7 +100,7 @@ Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agus
 - Titik digabung cluster (Leaflet.markercluster) karena volume besar.
 - Scrubber waktu memfilter per `date`.
 - Filter `Keyakinan FIRMS` memotong `conf`.
-- Klik titik → inspector Detection saja; “konsesi terdekat” dihitung jarak ke **centroid dossier** (kasar), dengan label eksplisit **bukan join GIS**.
+- Klik titik → inspector Detection saja; asosiasi spasial memakai urutan **point-in-polygon boundary**, jarak ke **tepi polygon terdekat**, lalu **centroid fallback** hanya untuk dossier tanpa boundary. Kedekatan atau overlap tetap **bukan atribusi kebakaran**.
 
 ### 3.5 Batasan FIRMS
 

@@ -47,6 +47,7 @@ jobs:
         run: |
           python -m py_compile scripts/ingest_firms.py
           python -m unittest discover -s tests -p 'test_*.py' -v
+          node tests/test_spatial_proximity.js
           python - <<'PY'
           import json
           from pathlib import Path
@@ -64,7 +65,10 @@ jobs:
           html = Path("index.html").read_text(encoding="utf-8")
           assert 'boundary.qualities.indexOf(state.boundary)' in html
           assert 'boundaryStatus(d).key !== state.boundary' not in html
-          print("validated boundary-quality filter wiring")
+          assert 'pointInBoundaryGeometry' in html
+          assert 'boundaryGeometryDistanceKm' in html
+          assert 'jarak centroid kasar' not in html
+          print("validated boundary filters and polygon-aware hotspot proximity")
           PY
 
       - name: Fetch and validate FIRMS
