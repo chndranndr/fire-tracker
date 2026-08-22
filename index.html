@@ -645,6 +645,17 @@
       return new Intl.DateTimeFormat("id-ID", options).format(date) + (includeTime ? " WIB" : "");
     }
 
+    function formatAge(value) {
+      if (!value) return null;
+      var date = value instanceof Date ? value : new Date(value);
+      if (isNaN(date.getTime())) return null;
+      var minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+      if (minutes < 60) return minutes + "m";
+      var hours = Math.floor(minutes / 60);
+      if (hours < 48) return hours + "h " + (minutes % 60) + "m";
+      return Math.floor(hours / 24) + "d";
+    }
+
     function renderDatasetState() {
       var count = firmsMeta && firmsMeta.count != null ? firmsMeta.count : firms.length;
       var mapped = dossiers.filter(function (d) { return (boundaryById[d.id] || []).length > 0; }).length;
@@ -659,8 +670,11 @@
       var syncText = syncValue && String(syncValue).indexOf("T") !== -1
         ? "sync " + formatWib(syncValue, true)
         : (syncValue ? "snapshot " + String(syncValue) : "sync time unavailable");
-      var newestText = newest && !isNaN(newest.getTime()) ? " · newest observation " + formatWib(newest, true) : "";
+      var newestText = newest && !isNaN(newest.getTime())
+        ? " · newest observation " + formatWib(newest, true) + (formatAge(newest) ? " · age " + formatAge(newest) : "")
+        : "";
       elStamp.dataset.status = status;
+      elStamp.title = (firmsMeta && firmsMeta.error) || "Pipeline sync and satellite-observation age are tracked separately.";
       elStamp.textContent = (status === "stale" ? "DATA PIPELINE STALE · " : "") + sourceName + " · " + syncText + newestText;
 
       var periodEl = document.getElementById("walhi-period");
