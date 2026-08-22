@@ -956,8 +956,8 @@
       var nearHtml = nearest
         ? '<button type="button" class="linkish" id="goto-near" style="background:none;border:0;color:var(--amber);cursor:pointer;padding:0;font:inherit">' +
             escapeHtml(nearest.name) + " (" + nearest.walhiHotspots.toLocaleString("id-ID") + " WALHI claim)</button>" +
-            '<p style="font-size:12px;color:var(--muted);margin:4px 0 0">Konsesi terdekat (jarak centroid kasar) — <strong>bukan join GIS</strong>.</p>'
-        : '<p class="insp-empty">Tidak ada centroid dossier dalam radius kasar.</p>';
+            '<p style="font-size:12px;color:var(--muted);margin:4px 0 0">' + escapeHtml(nearest._proximity.label) + '</p>'
+        : '<p class="insp-empty">Tidak ada boundary/centroid dossier dalam radius 150 km.</p>';
 
       elInsp.innerHTML =
         '<div class="insp-title">' + (p._fallback ? 'SIPONGI FALLBACK' : 'NASA FIRMS DETECTION') + '</div>' +
@@ -990,16 +990,112 @@
       }
     }
 
-    function nearestConcession(lat, lon) {
-      var best = null, bestD = Infinity;
-      dossiers.forEach(function (d) {
-        var dy = d.centroid[0] - lat;
-        var dx = (d.centroid[1] - lon) * Math.cos(lat * Math.PI / 180);
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < bestD) { bestD = dist; best = d; }
-      });
-      return bestD < 1.5 ? best : null;
+    /* spatial proximity helpers */
+    function pointOnBoundarySegment(lon, lat, a, b) {
+      var cross = (lon - a[0]) * (b[1] - a[1]) - (lat - a[1]) * (b[0] - a[0]);
+      if (Math.abs(cross) > 1e-10) return false;
+      return lon >= Math.min(a[0], b[0]) - 1e-10 && lon <= Math.max(a[0], b[0]) + 1e-10 &&
+        lat >= Math.min(a[1], b[1]) - 1e-10 && lat <= Math.max(a[1], b[1]) + 1e-10;
     }
+
+    function pointInBoundaryRing(lon, lat, ring) {
+      if (!ring || ring.length < 3) return false;
+      var inside = false;
+      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        var a = ring[j], b = ring[i];
+        if (pointOnBoundarySegment(lon, lat, a, b)) return true;
+        if ((a[1] > lat) !== (b[1] > lat)) {
+          var crossingLon = (b[0] - a[0]) * (lat - a[1]) / (b[1] - a[1]) + a[0];
+          if (lon < crossingLon) inside = !inside;
+        }
+      }
+      return inside;
+    }
+
+    function pointInBoundaryPolygon(lon, lat, polygon) {
+      if (!polygon || !polygon.length || !pointInBoundaryRing(lon, lat, polygon[0])) return false;
+      for (var i = 1; i < polygon.length; i++) { if (pointInBoundaryRing(lon, lat, polygon[i])) return false; }
+      return true;
+    }
+
+    function pointInBoundaryGeometry(lon, lat, geometry) {
+      if (!geometry) return false;
+      if (geometry.type === "Polygon") return pointInBoundaryPolygon(lon, lat, geometry.coordinates || []);
+      if (geometry.type === "MultiPolygon") return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(lon, lat, polygon); });
+      return false;
+    }
+
+    function pointToBoundarySegmentKm(lat, lon, a, b) {
+      var kmLat = 110.574;
+      var kmLon = 111.320 * Math.cos(lat * Math.PI / 180);
+      var ax = (a[0] - lon) * kmLon, ay = (a[1] - lat) * kmLat;
+      var bx = (b[0] - lon) * kmLon, by = (b[1] - lat) * kmLat;
+      var dx = bx - ax, dy = by - ay;
+      var denom = dx * dx + dy * dy;
+      var t = denom ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / denom)) : 0;
+      var qx = ax + t * dx, qy = ay + t * dy;
+      return Math.sqrt(qx * qx + qy * qy);
+    }
+
+    function boundaryRingDistanceKm(lat, lon, ring) {
+      var best = Infinity;
+      if (!ring || ring.length < 2) return best;
+      for (var i = 0; i < ring.length; i++) best = Math.min(best, pointToBoundarySegmentKm(lat, lon, ring[i], ring[(i + 1) % ring.length]));
+      return best;
+    }
+
+    function boundaryGeometryDistanceKm(lat, lon, geometry) {
+      if (!geometry) return Infinity;
+      if (pointInBoundaryGeometry(lon, lat, geometry)) return 0;
+      var polygons = geometry.type === "Polygon" ? [geometry.coordinates || []] : (geometry.type === "MultiPolygon" ? (geometry.coordinates || []) : []);
+      var best = Infinity;
+      polygons.forEach(function (polygon) { polygon.forEach(function (ring) { best = Math.min(best, boundaryRingDistanceKm(lat, lon, ring)); }); });
+      return best;
+    }
+
+    function boundaryQualityRank(value) {
+      var quality = normalizeBoundaryQuality(value);
+      return quality === "OFFICIAL" ? 3 : quality === "GFW" ? 2 : 1;
+    }
+
+    function nearestConcession(lat, lon) {
+      var inside = null, nearestBoundary = null, nearestBoundaryKm = Infinity;
+      dossiers.forEach(function (d) {
+        (boundaryById[d.id] || []).forEach(function (feature) {
+          var geometry = feature.geometry;
+          var quality = normalizeBoundaryQuality(feature.properties && feature.properties.quality);
+          if (pointInBoundaryGeometry(lon, lat, geometry)) {
+            if (!inside || boundaryQualityRank(quality) > boundaryQualityRank(inside.quality)) inside = { dossier: d, quality: quality };
+            return;
+          }
+          var distanceKm = boundaryGeometryDistanceKm(lat, lon, geometry);
+          if (distanceKm < nearestBoundaryKm) { nearestBoundaryKm = distanceKm; nearestBoundary = { dossier: d, quality: quality }; }
+        });
+      });
+      if (inside) {
+        var insideResult = Object.assign({}, inside.dossier);
+        insideResult._proximity = { relation: "inside", distanceKm: 0, quality: inside.quality, label: "Titik berada di dalam boundary " + inside.quality + ". Overlap spasial saja - bukan bukti perusahaan menyebabkan kebakaran." };
+        return insideResult;
+      }
+      if (nearestBoundary && nearestBoundaryKm <= 150) {
+        var boundaryResult = Object.assign({}, nearestBoundary.dossier);
+        boundaryResult._proximity = { relation: "boundary", distanceKm: nearestBoundaryKm, quality: nearestBoundary.quality, label: "Boundary konsesi terdekat - ~" + Math.round(nearestBoundaryKm) + " km dari tepi polygon " + nearestBoundary.quality + ". Kedekatan bukan bukti atribusi." };
+        return boundaryResult;
+      }
+      var fallback = null, fallbackKm = Infinity;
+      dossiers.forEach(function (d) {
+        if ((boundaryById[d.id] || []).length || !d.centroid) return;
+        var dy = (d.centroid[0] - lat) * 110.574;
+        var dx = (d.centroid[1] - lon) * 111.320 * Math.cos(lat * Math.PI / 180);
+        var distanceKm = Math.sqrt(dx * dx + dy * dy);
+        if (distanceKm < fallbackKm) { fallbackKm = distanceKm; fallback = d; }
+      });
+      if (!fallback || fallbackKm > 150) return null;
+      var fallbackResult = Object.assign({}, fallback);
+      fallbackResult._proximity = { relation: "centroid", distanceKm: fallbackKm, quality: null, label: "Boundary belum tersedia - ~" + Math.round(fallbackKm) + " km dari centroid lokasi dossier. Ini hanya fallback navigasi." };
+      return fallbackResult;
+    }
+    /* end spatial proximity helpers */
 
     /* ---------- Map ---------- */
     var map = L.map("map", { zoomControl: true, attributionControl: true }).setView([-1.5, 114.5], 6);
