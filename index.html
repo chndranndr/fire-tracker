@@ -759,13 +759,13 @@
         if (state.prov && d.province !== state.prov) return false;
         if (!partyMatch(d)) return false;
         if (state.boundary) {
-  var boundary = boundaryStatus(d);
-  if (state.boundary === "none") {
-    if (boundary.qualities.length) return false;
-  } else if (boundary.qualities.indexOf(state.boundary) === -1) {
-    return false;
-  }
-}
+          var boundary = boundaryStatus(d);
+          if (state.boundary === "none") {
+            if (boundary.qualities.length) return false;
+          } else if (boundary.qualities.indexOf(state.boundary) === -1) {
+            return false;
+          }
+        }
         if (!q) return true;
         var blob = [
           d.id, d.name, d.sector, d.province, d.uboStatus,
