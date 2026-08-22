@@ -21,13 +21,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: research/meratus-boundaries-20260822
-      - name: Fetch public boundary sources
+      - name: Fetch and validate public boundary sources
         run: |
           set -euo pipefail
-          python -m pip install --quiet pyshp
+          python -m pip install --quiet pyshp shapely
           rm -rf research-output
           python scripts/research_boundaries.py
-      - name: Persist raw research output on research branch
+          python scripts/process_boundaries.py
+      - name: Persist validated research output on research branch
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
@@ -37,7 +38,7 @@ jobs:
             echo 'No research output changes'
             exit 0
           fi
-          git commit -m 'chore: persist boundary research output'
+          git commit -m 'chore: persist validated boundary research output'
           git push origin HEAD:research/meratus-boundaries-20260822
 
   deploy:
