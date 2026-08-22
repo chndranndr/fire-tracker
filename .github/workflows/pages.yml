@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -15,32 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  boundary-research:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: research/meratus-boundaries-20260822
-      - name: Fetch and validate public boundary sources
-        run: |
-          set -euo pipefail
-          python -m pip install --quiet pyshp shapely
-          rm -rf research-output
-          python scripts/research_boundaries.py
-          python scripts/process_boundaries.py
-      - name: Persist validated research output on research branch
-        run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add research-output
-          if git diff --cached --quiet; then
-            echo 'No research output changes'
-            exit 0
-          fi
-          git commit -m 'chore: persist validated boundary research output'
-          git push origin HEAD:research/meratus-boundaries-20260822
-
   deploy:
     environment:
       name: github-pages
