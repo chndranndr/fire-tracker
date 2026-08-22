@@ -37,28 +37,32 @@ Tepi graf di UI berlabel `KLAIM_OVERLAY` / `KONTROL` / `IKATAN` agar relasi tida
 
 ### 3.1 Sumber primer
 
-- **Produk:** NASA FIRMS *Suomi-NPP VIIRS C2*, near-real-time, wilayah **South East Asia**, jendela **7 hari**.
-- **Endpoint publik (tanpa MAP_KEY):**  
-  `https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_SouthEast_Asia_7d.csv`
+- **Produk target pipeline:** NASA FIRMS VIIRS near-real-time untuk **S-NPP, NOAA-20, dan NOAA-21**.
+- **Endpoint pipeline:** FIRMS Area API `https://firms.modaps.eosdis.nasa.gov/api/area/` dengan `MAP_KEY` pada secret GitHub Actions.
+- **Snapshot yang masih ada di repository:** Suomi-NPP VIIRS C2 SouthEast Asia 7-day. Snapshot tersebut tetap dapat dimuat sebagai known-good fallback sampai workflow NRT pertama berhasil.
 - **Mengapa bukan Google Maps Embed:** lapisan api di peta Google umumnya bertumpu pada deteksi FIRMS/sejenis; Embed membutuhkan API key dan tidak cocok untuk alur OSINT/self-host. MERATUS memakai sumber FIRMS langsung.
 
 ### 3.2 Pipeline pengumpulan (snapshot yang di-commit)
 
-1. Unduh CSV SEA 7 hari.
-2. Parse baris deteksi (latitude, longitude, bright_ti4/ti5, FRP, tanggal, waktu, satelit, confidence, day/night).
-3. **Filter spasial Kalimantan Indonesia:**
-   - Bounding box kasar pulau (~108.8°E–119.3°E, ~4.3°S–7.4°N).
-   - **Keluarkan** kotak Sarawak/Sabah (Malaysia) agar titik di wilayah Malaysia tidak masuk agregat Indonesia.
-4. Normalisasi confidence ke label UI: `low` / `nominal` / `high`.
-5. Tulis `data/firms.json`:
+1. Ambil lima hari terakhir untuk setiap sumber VIIRS NRT.
+2. Parse baris deteksi (latitude, longitude, bright_ti4/ti5, FRP, tanggal, waktu, satelit, confidence, day/night, dan atribut sensor lain yang tersedia).
+3. **Filter spasial Kalimantan Indonesia:** bbox kasar + coarse exclusion boxes Sarawak/Sabah. Ini bukan polygon administrasi presisi; metadata dataset menyatakan filter yang digunakan.
+4. Normalisasi platform dan confidence ke label UI: `low` / `nominal` / `high`.
+5. Tambahkan `observationId` deterministik dari platform + tanggal/waktu akuisisi + koordinat, lalu hapus hanya record exact-duplicate.
+6. Validasi schema, koordinat, timestamp, platform, non-empty result, dan penurunan count yang mencurigakan.
+7. Tulis `data/firms.json` dan `data/firms-status.json` hanya jika dataset baru lolos validasi:
 
 ```json
 {
   "meta": {
-    "source": "NASA FIRMS Suomi-NPP VIIRS C2 SouthEast Asia 7-day CSV",
+    "source": "NASA FIRMS NRT VIIRS",
+    "platforms": ["S-NPP", "NOAA-20", "NOAA-21"],
     "url": "…",
     "fetched": "YYYY-MM-DD",
-    "filter": "Kalimantan Indonesia province AABBs; Sarawak/Sabah excluded",
+    "lastSuccessfulSync": "YYYY-MM-DDTHH:MM:SSZ",
+    "newestDetectionUtc": "YYYY-MM-DDTHH:MM:SSZ",
+    "pipelineVersion": "2",
+    "pipelineStatus": "healthy",
     "count": 20500
   },
   "points": [
@@ -100,17 +104,16 @@ Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agus
 
 - Hotspot = kandidat termal; bisa jadi api kecil, industri, atau false positive.
 - Resolusi VIIRS (~375 m) tidak mencerminkan batas legal konsesi.
-- CSV 7 hari publik bergulir; tanpa regenerate, dashboard menampilkan **snapshot** yang di-commit, bukan live NASA.
+- FIRMS mendistribusikan data near-real-time, bukan continuous live imagery. Dashboard menampilkan snapshot terakhir yang berhasil di-ingest.
 - Tidak ada koreksi asap/awan di sisi MERATUS.
+- S-NPP, NOAA-20, dan NOAA-21 tetap satelit polar-orbiting; tiga platform tidak berarti observasi kontinu setiap menit.
 
 ### 3.6 Cara memperbarui
 
-1. Unduh ulang CSV FIRMS SEA 7d.
-2. Ulangi filter Kalimantan ID.
-3. Timpa `data/firms.json` (`meta.fetched`, `meta.count`, `points`).
-4. Commit & push (GitHub Pages akan men-deploy ulang).
-
-Opsional nanti: GitHub Action cron yang menjalankan langkah di atas otomatis.
+1. Set repository secret `FIRMS_MAP_KEY`.
+2. Jalankan workflow `Refresh FIRMS NRT` secara manual atau tunggu cron hourly.
+3. Workflow melakukan safe publish ke `data/firms.json`, menulis archive harian, dan memperbarui metadata freshness.
+4. Jika fetch atau validasi gagal, workflow menulis `pipelineStatus: stale` ke `data/firms-status.json` dan mempertahankan dataset terakhir yang valid.
 
 ---
 
