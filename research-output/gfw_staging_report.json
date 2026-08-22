@@ -1,0 +1,133 @@
+{
+  "sourceUrl": "https://gfw-staging.wri.org/arcgis/rest/services/country_data/asia/MapServer/2",
+  "errors": [],
+  "fields": [
+    {
+      "name": "objectid_1",
+      "alias": "objectid_1",
+      "type": "esriFieldTypeOID"
+    },
+    {
+      "name": "objectid",
+      "alias": "objectid",
+      "type": "esriFieldTypeInteger"
+    },
+    {
+      "name": "po_legalst",
+      "alias": "po_legalst",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "po_legal_1",
+      "alias": "po_legal_1",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "po_hgu",
+      "alias": "po_hgu",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "po_area_hg",
+      "alias": "po_area_hg",
+      "type": "esriFieldTypeDouble"
+    },
+    {
+      "name": "subgroup",
+      "alias": "subgroup",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "groupid",
+      "alias": "groupid",
+      "type": "esriFieldTypeSmallInteger"
+    },
+    {
+      "name": "source",
+      "alias": "source",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "zsl",
+      "alias": "zsl",
+      "type": "esriFieldTypeSmallInteger"
+    },
+    {
+      "name": "group_comp",
+      "alias": "group_comp",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "shape_leng",
+      "alias": "shape_leng",
+      "type": "esriFieldTypeDouble"
+    },
+    {
+      "name": "type",
+      "alias": "type",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "area_ha",
+      "alias": "area_ha",
+      "type": "esriFieldTypeInteger"
+    },
+    {
+      "name": "country",
+      "alias": "country",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "company",
+      "alias": "company",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "name",
+      "alias": "name",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "gfwid",
+      "alias": "gfwid",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "name": "shape",
+      "alias": "shape",
+      "type": "esriFieldTypeGeometry"
+    },
+    {
+      "name": "globalid",
+      "alias": "globalid",
+      "type": "esriFieldTypeGlobalID"
+    },
+    {
+      "name": "shape_Length",
+      "alias": "shape_Length",
+      "type": "esriFieldTypeDouble"
+    },
+    {
+      "name": "shape_Area",
+      "alias": "shape_Area",
+      "type": "esriFieldTypeDouble"
+    }
+  ],
+  "recordCount": 1845,
+  "matches": {
+    "bsg": 1,
+    "lar": 1,
+    "thm1": 1,
+    "sum": 1,
+    "thm2": 1
+  },
+  "metadataUrl": "https://gfw-staging.wri.org/arcgis/rest/services/country_data/asia/MapServer/2?f=pjson",
+  "metadataStatus": 200,
+  "layerName": "Indonesia oil palm concessions",
+  "geometryType": "esriGeometryPolygon",
+  "spatialReference": {
+    "wkid": 102100,
+    "latestWkid": 3857
+  },
+  "objectIdField": "objectid_1"
+}
