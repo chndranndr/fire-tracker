@@ -1,4 +1,4 @@
-# validation pass: 2026-08-22
+# merge pass: 2026-08-22
 name: Temporary GFW boundary research
 
 on:
@@ -11,34 +11,41 @@ permissions:
   contents: write
 
 jobs:
-  validate:
+  merge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: research/meratus-boundaries-20260822
           fetch-depth: 0
-      - name: Validate GFW matches against dossier locations
+      - name: Build validated BIG plus GFW boundary set
         run: |
           set -euo pipefail
           python -m pip install --quiet shapely
           python - <<'PY'
-          import json, math, re
-          from pathlib import Path
+          import json, re
           from collections import Counter
-          from shapely.geometry import shape, Point
+          from pathlib import Path
+          from shapely.geometry import shape
           from shapely.validation import explain_validity
 
-          raw=json.loads(Path('research-output/gfw_staging_matches.geojson').read_text())
-          dossiers=json.loads(Path('data/dossiers.json').read_text())['dossiers']
-          dossier={d['id']:d for d in dossiers}
-          expected={
-            'bsg':'BAGUS SENTOSA GEMILANG',
-            'thm1':'TRI H.M 1',
-            'thm2':'TRI H.M 2',
-            'lar':'LESTARI ALAM RAYA',
-            'sum':'SUMATERA UNGGUL MAKMUR',
+          BASE=Path('research-output')
+          official=json.loads((BASE/'final_boundaries.geojson').read_text())
+          raw=json.loads((BASE/'gfw_staging_matches.geojson').read_text())
+          GFW_URL='https://gfw-staging.wri.org/arcgis/rest/services/country_data/asia/MapServer/2'
+          GFW_META='ArcGIS item f82b539b9b2f495e853670ddc3f0ce68; Ministry of Forestry Indonesia 2010 + provincial BPN; processed Greenpeace 2011; prepared WRI 2012; metadata warns dataset is incomplete/legacy and represents current or planned plantations at source vintage, not proof of current 2026 HGU'
+          names={
+            'bsg':'PT Bagus Sentosa Gemilang',
+            'lar':'PT Lestari Alam Raya',
+            'sum':'PT Sumatera Unggul Makmur',
           }
+          source_expected={
+            'bsg':['BAGUS SENTOSA GEMILANG'],
+            'lar':['LESTARI ALAM RAYA'],
+            'sum':['SUMATERA UNGGUL MAKMUR','SUMATRA UNGGUL MAKMUR'],
+          }
+          include=set(names)
+
           def norm(v):
               s=str(v or '').upper()
               s=re.sub(r'\bPT\.?\b',' ',s)
@@ -50,60 +57,94 @@ jobs:
                       return [float(node[0]),float(node[1])]
                   return [clean(x) for x in node]
               raise TypeError(type(node).__name__)
-          def hav_km(lat1,lon1,lat2,lon2):
-              R=6371.0088
-              p1,p2=math.radians(lat1),math.radians(lat2)
-              dp=math.radians(lat2-lat1); dl=math.radians(lon2-lon1)
-              a=math.sin(dp/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-              return 2*R*math.asin(math.sqrt(a))
-          report={'ok':True,'expectedCount':5,'count':0,'counts':{},'items':[],'errors':[]}
-          counts=Counter()
+
+          out=list(official.get('features',[]))
+          included=[]; excluded=[]
           for f in raw.get('features',[]):
               p=f.get('properties') or {}; did=p.get('_researchDossierId')
-              if did not in expected:
-                  report['errors'].append(f'unexpected dossierId {did!r}'); continue
-              counts[did]+=1
+              if did not in include:
+                  if did in {'thm1','thm2'}:
+                      excluded.append({
+                        'dossierId':did,
+                        'reason':'GFW source company is only PT. Tri H.M without suffix 1/2; records cannot be safely assigned to dossier-specific IDs',
+                        'sourceCompany':p.get('company') or p.get('name'),
+                        'sourceObjectId':p.get('objectid_1'),
+                        'gfwid':p.get('gfwid'),
+                      })
+                  continue
               company=(p.get('company') or p.get('name') or '').strip()
-              name_ok=norm(company)==norm(expected[did])
-              geom_data={'type':f['geometry']['type'],'coordinates':clean(f['geometry']['coordinates'])}
-              geom=shape(geom_data)
+              if not any(norm(company)==norm(alias) for alias in source_expected[did]):
+                  raise ValueError(f'{did}: source company mismatch {company!r}')
+              geometry={'type':f['geometry']['type'],'coordinates':clean(f['geometry']['coordinates'])}
+              if geometry['type'] not in {'Polygon','MultiPolygon'}:
+                  raise ValueError(f'{did}: unsupported geometry {geometry["type"]}')
+              geom=shape(geometry)
               minx,miny,maxx,maxy=geom.bounds
               bbox_ok=minx>=108.0 and miny>=-4.6 and maxx<=119.5 and maxy<=1.85
-              topo_ok=geom.is_valid and not geom.is_empty and geom.area>0
-              d=dossier[did]
-              lat,lon=d['centroid']
-              point=Point(lon,lat)
-              contains=geom.covers(point)
-              nearest=geom.representative_point()
-              centroid_dist=hav_km(lat,lon,nearest.y,nearest.x)
-              item={
-                'dossierId':did,'dossierName':d['name'],'dossierProvince':d.get('province'),
-                'dossierCentroidLatLon':[lat,lon],
-                'sourceObjectId':p.get('objectid_1'),'sourceCompany':company,'nameExactAfterPtPunctuationNormalization':name_ok,
-                'poLegalStatus':p.get('po_legalst'),'poHgu':p.get('po_hgu'),'poAreaHgu':p.get('po_area_hg'),
-                'areaHa':p.get('area_ha'),'groupCompany':p.get('group_comp'),'sourceField':p.get('source'),'gfwid':p.get('gfwid'),
-                'geometryType':geom_data['type'],'bounds':[minx,miny,maxx,maxy],
-                'valid':geom.is_valid,'validity':explain_validity(geom),'empty':geom.is_empty,
-                'bboxKalimantanIndonesiaScreen':bbox_ok,'coordinateDimensions':2,
-                'dossierCentroidCoveredByPolygon':contains,
-                'distanceDossierCentroidToPolygonRepresentativePointKm':round(centroid_dist,1),
-              }
-              if not (name_ok and bbox_ok and topo_ok):
-                  report['errors'].append(f'{did}: failed name/bbox/topology validation')
-              report['items'].append(item)
-          report['count']=sum(counts.values()); report['counts']=dict(sorted(counts.items()))
-          if set(counts)!=set(expected) or any(counts[k]!=1 for k in expected):
-              report['errors'].append(f'expected exactly one record per target; got {dict(counts)}')
-          report['ok']=not report['errors']
-          Path('research-output/gfw_validation_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+              if not (bbox_ok and geom.is_valid and not geom.is_empty and geom.area>0):
+                  raise ValueError(f'{did}: invalid geometry bbox={geom.bounds} validity={explain_validity(geom)}')
+              match_note='exact company-name match after PT/punctuation normalization'
+              if did=='sum':
+                  match_note='source spells company PT. Sumatra Unggul Makmur; matched to dossier PT Sumatera Unggul Makmur as Sumatra/Sumatera spelling variant; Sambas + Ganda Group independently corroborated'
+              status=(p.get('po_legalst') or '').strip() or 'not populated in GFW attributes'
+              source=(
+                f'Global Forest Watch / WRI legacy Indonesia oil palm concessions; {GFW_META}; '
+                f'sourceCompany={company}; match={match_note}; sourceLegalStatus={status}; '
+                f'area_ha={p.get("area_ha")}; po_area_hg={p.get("po_area_hg")}; '
+                f'group_comp={p.get("group_comp")}; gfwid={p.get("gfwid")}'
+              )
+              out.append({
+                'type':'Feature',
+                'properties':{
+                  'dossierId':did,
+                  'name':names[did],
+                  'quality':'GFW',
+                  'source':source,
+                  'sourceUrl':GFW_URL,
+                },
+                'geometry':geometry,
+              })
+              included.append({
+                'dossierId':did,'sourceCompany':company,'sourceObjectId':p.get('objectid_1'),
+                'gfwid':p.get('gfwid'),'sourceLegalStatus':status,'areaHa':p.get('area_ha'),
+                'poAreaHgu':p.get('po_area_hg'),'groupCompany':p.get('group_comp'),
+                'geometryType':geometry['type'],'bounds':[minx,miny,maxx,maxy],
+                'valid':geom.is_valid,'coordinateDimensions':2,'matchNote':match_note,
+              })
+
+          final={
+            'type':'FeatureCollection',
+            'name':'meratus-concession-boundaries',
+            'crs':{'type':'name','properties':{'name':'urn:ogc:def:crs:OGC:1.3:CRS84'}},
+            'features':out,
+          }
+          counts=Counter(f['properties']['dossierId'] for f in out)
+          expected={'agm':2,'bre':1,'bsg':1,'dwima':1,'kiani':1,'kpc':1,'lar':1,'sum':1}
+          if dict(sorted(counts.items())) != expected:
+              raise ValueError(f'wrong merged counts {dict(counts)} != {expected}')
+          for f in out:
+              p=f['properties']; g=f['geometry']
+              assert p['quality'] in {'OFFICIAL','GFW','PERKIRAAN'}
+              assert p['dossierId'] in expected
+              assert p['name'] and p['source'] and p['sourceUrl']
+              assert g['type'] in {'Polygon','MultiPolygon'}
+              geom=shape(g)
+              assert geom.is_valid and not geom.is_empty and geom.area>0
+          report={
+            'ok':True,'featureCount':len(out),'counts':expected,
+            'includedGfw':included,'excludedAmbiguousGfw':excluded,
+            'emptyDossierIds':['adaro','kideco','thm1','thm2'],
+          }
+          (BASE/'merged_boundaries.geojson').write_text(json.dumps(final,ensure_ascii=False,indent=2)+'\n')
+          (BASE/'merged_validation_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
-      - name: Persist validation report
+      - name: Persist merged research result
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add research-output/gfw_validation_report.json
+          git add research-output/merged_boundaries.geojson research-output/merged_validation_report.json
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'chore: validate GFW oil palm boundary matches'
+          git commit -m 'chore: build merged validated concession boundaries'
           git push origin HEAD:research/meratus-boundaries-20260822
