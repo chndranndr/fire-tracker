@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MERATUS — Intel Karhutla Kalimantan</title>
+  <!-- Tipografi: Saira Condensed (UI) + IBM Plex Mono (ID/koordinat) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Saira+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <style>
+    /* === Design tokens (Palantir Gotham / MERATUS) === */
+    :root {
+      --bg: #090909;
+      --panel: #121212;
+      --line: #2a2a2a;
+      --text: #d8d4cc;
+      --muted: #7a756c;
+      --amber: #e3a008;
+      --fire: #e23a14;
+      --golkar: #e3a008;
+      --gerindra: #c62828;
+      --ok: #6b8f71;
+      --warn: #b85c38;
+      --radius: 2px;
+      --font-ui: "Saira Condensed", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; }
+    button, input, select { font-family: inherit; color: inherit; }
+    a { color: var(--amber); }
+
+    /* === Shell layout === */
+    .app {
+      display: grid;
+      grid-template-rows: 40px 1fr 52px;
+      height: 100%;
+      min-height: 100vh;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    .callsign { font-weight: 700; letter-spacing: 0.12em; color: var(--amber); font-size: 16px; }
+    .stamp { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+    .stamp strong { color: var(--text); font-weight: 500; }
+    .mode-toggle { margin-left: auto; display: flex; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); }
+    .mode-toggle button {
+      background: transparent; border: 0; padding: 6px 14px; cursor: pointer;
+      letter-spacing: 0.08em; font-weight: 600; font-size: 13px; color: var(--muted);
+    }
+    .mode-toggle button.active { background: #1a1a1a; color: var(--amber); }
+
+    .main {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      min-height: 0;
+    }
+    @media (max-width: 960px) {
+      .main { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto; }
+      .inspector { max-height: 40vh; }
+    }
+
+    .panel {
+      background: var(--panel); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    }
+    .inspector { border-right: 0; border-left: 1px solid var(--line); }
+    .panel-h {
+      padding: 10px 12px 8px; border-bottom: 1px solid var(--line);
+      font-weight: 600; letter-spacing: 0.1em; font-size: 12px; color: var(--muted); text-transform: uppercase;
+    }
+    .panel-body { overflow: auto; flex: 1; padding: 8px 10px 16px; }
+
+    .search {
+      width: 100%; background: #0c0c0c; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 8px 10px; margin-bottom: 10px; font-size: 14px; outline: none;
+    }
+    .search:focus { border-color: var(--amber); }
+
+    .filters { display: grid; gap: 6px; margin-bottom: 12px; }
+    .filters label { display: grid; gap: 2px; font-size: 11px; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+    .filters select {
+      background: #0c0c0c; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 6px 8px; font-size: 13px;
+    }
+
+    /* Temuan */
+    .temuan {
+      border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-bottom: 12px;
+      background: linear-gradient(180deg, #141414, #101010);
+    }
+    .temuan h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.1em; color: var(--amber); text-transform: uppercase; }
+    .temuan p { margin: 0 0 8px; font-size: 14px; line-height: 1.35; color: var(--text); }
+    .temuan .stat { font-family: var(--font-mono); font-size: 22px; color: var(--fire); font-weight: 500; }
+    .temuan ul { margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.45; color: var(--muted); }
+    .temuan li { margin-bottom: 4px; }
+    .temuan button.linkish {
+      background: none; border: 0; color: var(--amber); padding: 0; cursor: pointer;
+      font-size: 13px; text-align: left; text-decoration: underline; text-underline-offset: 2px;
+    }
+
+    .obj-list { list-style: none; margin: 0; padding: 0; }
+    .obj-list li {
+      display: grid; grid-template-columns: 1fr auto; gap: 4px;
+      padding: 8px 6px; border-bottom: 1px solid #1c1c1c; cursor: pointer;
+    }
+    .obj-list li:hover, .obj-list li.selected { background: #1a1a1a; }
+    .obj-list .name { font-weight: 600; font-size: 14px; }
+    .obj-list .meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+    .obj-list .hot { color: var(--fire); font-family: var(--font-mono); font-size: 12px; }
+
+    .canvas-wrap { position: relative; min-height: 0; background: #0a0a0a; }
+    #map, #graph {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+    }
+    #graph { display: none; background: radial-gradient(ellipse at 50% 40%, #141210 0%, #090909 70%); }
+    #graph svg { width: 100%; height: 100%; }
+
+    .legend {
+      position: absolute; left: 10px; bottom: 10px; z-index: 500;
+      background: rgba(18,18,18,0.92); border: 1px solid var(--line); padding: 8px 10px;
+      font-size: 11px; letter-spacing: 0.04em; color: var(--muted); pointer-events: none;
+    }
+    .legend span { display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; }
+    .legend .fire-dot { background: var(--fire); border-radius: 50%; }
+    .legend .co-dot { background: var(--amber); }
+
+    /* Inspector */
+    .insp-empty { color: var(--muted); font-size: 14px; padding: 12px 4px; line-height: 1.4; }
+    .insp-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: 0.02em; }
+    .insp-id { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+    .tag {
+      display: inline-block; border: 1px solid var(--line); padding: 2px 6px; margin: 0 4px 4px 0;
+      font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; border-radius: var(--radius);
+    }
+    .tag.fire { border-color: var(--fire); color: var(--fire); }
+    .tag.amber { border-color: var(--amber); color: var(--amber); }
+    .tag.golkar { border-color: var(--golkar); color: var(--golkar); }
+    .tag.gerindra { border-color: var(--gerindra); color: var(--gerindra); }
+    .tag.warn { border-color: var(--warn); color: var(--warn); }
+    .tag.ok { border-color: var(--ok); color: var(--ok); }
+
+    .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 8px; font-size: 13px; margin: 10px 0; }
+    .kv dt { color: var(--muted); letter-spacing: 0.04em; }
+    .kv dd { margin: 0; font-family: var(--font-mono); font-size: 12px; word-break: break-word; }
+
+    .section { margin-top: 14px; }
+    .section h4 {
+      margin: 0 0 6px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+      border-bottom: 1px solid var(--line); padding-bottom: 4px;
+    }
+    .caveat {
+      border-left: 2px solid var(--warn); padding: 6px 8px; margin: 6px 0; background: #161210;
+      font-size: 13px; line-height: 1.4; color: #c4b8a8;
+    }
+    .src-list { list-style: none; margin: 0; padding: 0; }
+    .src-list li { margin-bottom: 6px; font-size: 13px; }
+    .src-list a { text-decoration: none; border-bottom: 1px solid #5a4a20; }
+    .src-list a:hover { color: #ffc94a; }
+
+    /* Time scrubber */
+    .scrubber {
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel);
+    }
+    .scrubber label { font-size: 11px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
+    .scrubber input[type="range"] { flex: 1; accent-color: var(--amber); }
+    .scrubber .date-label { font-family: var(--font-mono); font-size: 12px; min-width: 200px; color: var(--text); }
+
+    /* Leaflet overrides */
+    .leaflet-container { background: #0a0a0a; font-family: var(--font-ui); }
+    .leaflet-control-attribution { background: rgba(9,9,9,0.8) !important; color: var(--muted) !important; font-size: 10px !important; }
+    .leaflet-control-attribution a { color: var(--muted) !important; }
+    .leaflet-bar a { background: var(--panel) !important; color: var(--text) !important; border-bottom-color: var(--line) !important; }
+    .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+      background: rgba(226, 58, 20, 0.25) !important;
+    }
+    .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+      background: rgba(226, 58, 20, 0.85) !important; color: #fff !important;
+      font-family: var(--font-mono) !important; font-size: 11px !important;
+    }
+    .concession-icon {
+      background: var(--amber); border: 1px solid #090909; color: #090909;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+      width: 28px; height: 28px; line-height: 28px; text-align: center;
+      border-radius: 1px;
+    }
+    .layer-toggles {
+      display: flex; flex-direction: column; gap: 6px;
+      margin: 0 0 12px; padding: 8px; border: 1px solid var(--line);
+      font-size: 13px; letter-spacing: 0.04em;
+    }
+    .layer-toggles label {
+      display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text);
+    }
+    .layer-toggles input { accent-color: var(--amber); }
+    .co-region {
+      display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: middle;
+      border: 1px solid var(--amber); background: rgba(227, 160, 8, 0.22);
+    }
+
+    .graph-hint {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2;
+      font-size: 12px; letter-spacing: 0.08em; color: var(--muted); pointer-events: none;
+      background: rgba(9,9,9,0.7); padding: 4px 10px; border: 1px solid var(--line);
+    }
+  </style>
+</head>
+<body>
+  <!--
+    MERATUS — satu halaman intel (ADR 003).
+    Lapisan: Detection FIRMS ≠ ConcessionClaim WALHI ≠ Control ≠ PoliticalTie (ADR 001–002).
+    Data: data/firms.json + data/dossiers.json + data/boundaries.geojson
+  -->
+  <div class="app">
+    <header class="topbar">
+      <div class="callsign">MERATUS</div>
+      <div class="stamp"><strong>SUMBER TERBUKA</strong> · Karhutla Kalimantan</div>
+      <div class="stamp" id="stamp-meta">memuat…</div>
+      <div class="mode-toggle" role="group" aria-label="Mode kanvas">
+        <button type="button" id="btn-map" class="active">PETA</button>
+        <button type="button" id="btn-graph">GRAF</button>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- Kiri: Temuan + browser objek -->
+      <aside class="panel" aria-label="Browser objek">
+        <div class="panel-h">Browser · Temuan</div>
+        <div class="panel-body">
+          <input class="search" id="search" type="search" placeholder="Cari perusahaan, orang, partai, ID…" autocomplete="off" />
+
+          <div class="filters">
+            <label>Provinsi
+              <select id="f-prov">
+                <option value="">Semua</option>
+                <option>Kalimantan Barat</option>
+                <option>Kalimantan Tengah</option>
+                <option>Kalimantan Selatan</option>
+                <option>Kalimantan Timur</option>
+                <option>Kalimantan Utara</option>
+                <option>Kalimantan</option>
+              </select>
+            </label>
+            <label>Sektor
+              <select id="f-sector">
+                <option value="">Semua</option>
+                <option>Tambang</option>
+                <option>PBPH</option>
+                <option>Sawit</option>
+              </select>
+            </label>
+            <label>Partai / ikatan
+              <select id="f-party">
+                <option value="">Semua</option>
+                <option value="Golkar">Golkar</option>
+                <option value="Gerindra">Gerindra</option>
+                <option value="Kabinet">Kabinet / koalisi</option>
+                <option value="PDI-P">Kampanye / PDI-P</option>
+                <option value="TIDAK">TIDAK TERPETAKAN</option>
+              </select>
+            </label>
+            <label>Keyakinan FIRMS
+              <select id="f-conf">
+                <option value="">Semua</option>
+                <option value="high">high</option>
+                <option value="nominal">nominal</option>
+                <option value="low">low</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="layer-toggles" aria-label="Lapisan peta">
+            <label><input type="checkbox" id="tog-regions" checked /> Region konsesi (poligon)</label>
+            <label><input type="checkbox" id="tog-centroids" checked /> Marker centroid</label>
+          </div>
+
+          <div class="temuan" id="temuan">
+            <h3>Temuan</h3>
+            <p><span class="stat">74%</span> hotspot Kalimantan di dalam konsesi (klaim WALHI Jan–Jul 2026).</p>
+            <ul>
+              <li>34.262 deteksi · 25.524 di konsesi (HGU 10.739 · tambang 7.880 · PBPH 6.905).</li>
+              <li><button type="button" class="linkish" data-focus="kpc">Golkar ↔ Bakrie ↔ KPC</button> — jabatan partai, bukan atribusi api.</li>
+              <li><button type="button" class="linkish" data-focus="kiani">Gerindra ↔ Kiani Lestari</button> — historis + <em>caveat Gecko</em>.</li>
+            </ul>
+          </div>
+
+          <div class="panel-h" style="padding-left:0;border:0;">12 Konsesi WALHI</div>
+          <ul class="obj-list" id="obj-list"></ul>
+        </div>
+      </aside>
+
+      <!-- Tengah: Peta / Graf -->
+      <section class="canvas-wrap" aria-label="Kanvas">
+        <div id="map"></div>
+        <div id="graph">
+          <div class="graph-hint">GRAF OBJEK · tepi berlabel · klik node → inspector</div>
+          <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="legend" id="map-legend">
+          <div><span class="fire-dot"></span>Deteksi FIRMS (cluster)</div>
+          <div><span class="co-dot"></span>Centroid konsesi</div>
+          <div><span class="co-region"></span>Region batas lahan (GeoJSON)</div>
+        </div>
+      </section>
+
+      <!-- Kanan: Inspector -->
+      <aside class="panel inspector" aria-label="Inspector dossier">
+        <div class="panel-h">Inspector</div>
+        <div class="panel-body" id="inspector">
+          <div class="insp-empty">Pilih cluster api, konsesi, atau node graf. Empat lapisan bukti tetap terpisah.</div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="scrubber">
+      <label for="time-range">Waktu FIRMS</label>
+      <input type="range" id="time-range" min="0" max="0" value="0" />
+      <div class="date-label" id="time-label">—</div>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    /* Data dinamis: edit data/firms.json + data/dossiers.json lalu refresh.
+       Butuh http server lokal (file:// diblokir CORS fetch). */
+
+    var elList = document.getElementById("obj-list");
+    var elInsp = document.getElementById("inspector");
+    var elStamp = document.getElementById("stamp-meta");
+    var elTime = document.getElementById("time-range");
+    var elTimeLabel = document.getElementById("time-label");
+    var elSearch = document.getElementById("search");
+
+    elStamp.textContent = "MEMUAT data/*.json …";
+    elInsp.innerHTML = '<div class="insp-empty">Memuat <span class="mono">data/firms.json</span>, <span class="mono">data/dossiers.json</span> &amp; <span class="mono">data/boundaries.geojson</span>…</div>';
+
+    function synthesizeSipongiPoints(sip) {
+      if (!sip) return [];
+      var centers = {
+        Kalbar: [-0.2, 110.5],
+        Kalteng: [-1.6, 113.4],
+        Kalsel: [-2.9, 115.4]
+      };
+      var out = [];
+      (sip.daily || []).forEach(function (d) {
+        ["Kalbar", "Kalteng", "Kalsel"].forEach(function (k) {
+          var n = d[k] || 0;
+          var c = centers[k];
+          for (var i = 0; i < n; i++) {
+            out.push({
+              lat: c[0] + (Math.random() - 0.5) * 1.8,
+              lon: c[1] + (Math.random() - 0.5) * 2.2,
+              b4: 330,
+              b5: 300,
+              frp: 5,
+              date: d.date,
+              time: "0700",
+              sat: "SIPONGI",
+              conf: "high",
+              dn: "D",
+              _fallback: true
+            });
+          }
+        });
+      });
+      return out;
+    }
+
+    function loadJson(url) {
+      return fetch(url, { cache: "no-store" }).then(function (res) {
+        if (!res.ok) throw new Error(url + " → HTTP " + res.status);
+        return res.json();
+      });
+    }
+
+    Promise.all([
+      loadJson("data/firms.json").catch(function (err) {
+        return { __error: err, meta: null, points: [] };
+      }),
+      loadJson("data/dossiers.json"),
+      loadJson("data/boundaries.geojson").catch(function () {
+        return { type: "FeatureCollection", features: [] };
+      })
+    ]).then(function (pair) {
+      boot(pair[0], pair[1], pair[2]);
+    }).catch(function (err) {
+      elStamp.textContent = "GAGAL MUAT JSON";
+      elInsp.innerHTML =
+        '<div class="insp-empty">Gagal memuat data. Jalankan lewat HTTP server lokal, lalu pastikan file ada di <span class="mono">data/</span>.<br/><br/><span class="mono">' +
+        String(err && err.message ? err.message : err) +
+        "</span></div>";
+    });
+
+    function boot(firmsPayload, dossierPayload, boundariesGeo) {
+    var firms = [];
+    var firmsMeta = null;
+    var usingFallback = false;
+    var sipongi = dossierPayload.sipongiFallback || null;
+    var dossiers = dossierPayload.dossiers || [];
+    var walhi = dossierPayload.walhiSummary || null;
+    var boundaryById = {};
+    (boundariesGeo && boundariesGeo.features ? boundariesGeo.features : []).forEach(function (f) {
+      var id = f.properties && f.properties.dossierId;
+      if (!id || !f.geometry) return;
+      if (!boundaryById[id]) boundaryById[id] = [];
+      boundaryById[id].push(f);
+    });
+
+    if (firmsPayload && !firmsPayload.__error) {
+      firms = Array.isArray(firmsPayload)
+        ? firmsPayload
+        : (firmsPayload.points || []);
+      firmsMeta = Array.isArray(firmsPayload) ? null : (firmsPayload.meta || null);
+    }
+
+    if (!firms.length) {
+      usingFallback = true;
+      firms = synthesizeSipongiPoints(sipongi);
+      firmsMeta = {
+        source: "SIPONGI/Kemenhut fallback (17–19 Agu 2026)",
+        count: firms.length,
+        fallback: true,
+        loadError: firmsPayload && firmsPayload.__error
+          ? String(firmsPayload.__error.message || firmsPayload.__error)
+          : null
+      };
+    }
+
+    /* ---------- State ---------- */
+    var state = {
+      mode: "map",
+      selectedId: null,
+      selectedType: null,
+      prov: "",
+      sector: "",
+      party: "",
+      conf: "",
+      search: "",
+      dateIdx: 0,
+      dates: [],
+      showRegions: true,
+      showCentroids: true
+    };
+
+    var dates = Array.from(new Set(firms.map(function (f) { return f.date; }))).sort();
+    state.dates = dates;
+    state.dateIdx = dates.length ? dates.length - 1 : 0;
+
+    var nBound = Object.keys(boundaryById).length;
+    elStamp.textContent =
+      (usingFallback ? "FALLBACK SIPONGI · " : "FIRMS · ") +
+      (firmsMeta && firmsMeta.count != null ? firmsMeta.count + " titik" : firms.length + " titik") +
+      " · region " + nBound + "/" + dossiers.length +
+      " · data/* · " + new Date().toISOString().slice(0, 16).replace("T", " ") + "Z";
+
+    /* ---------- Filters / list ---------- */
+    function partyMatch(d) {
+      var f = state.party;
+      if (!f) return true;
+      if (f === "TIDAK") {
+        return (!d.politicalTies || !d.politicalTies.length) || d.politicalStatus === "TIDAK TERPETAKAN";
+      }
+      return (d.politicalTies || []).some(function (t) {
+        return (t.party || "").indexOf(f) !== -1 || (f === "Kabinet" && (t.party || "").indexOf("Kabinet") !== -1);
+      });
+    }
+
+    function filteredDossiers() {
+      var q = state.search.trim().toLowerCase();
+      return dossiers.filter(function (d) {
+        if (state.sector && d.sector !== state.sector) return false;
+        if (state.prov && d.province !== state.prov) return false;
+        if (!partyMatch(d)) return false;
+        if (!q) return true;
+        var blob = [
+          d.id, d.name, d.sector, d.province, d.uboStatus,
+          d.control && d.control.summary,
+          d.control && d.control.group,
+          (d.control && d.control.persons || []).map(function (p) { return p.name; }).join(" "),
+          (d.politicalTies || []).map(function (t) { return t.party + " " + t.detail; }).join(" ")
+        ].join(" ").toLowerCase();
+        return blob.indexOf(q) !== -1;
+      }).sort(function (a, b) { return b.walhiHotspots - a.walhiHotspots; });
+    }
+
+    function renderList() {
+      var items = filteredDossiers();
+      elList.innerHTML = items.map(function (d) {
+        var sel = state.selectedId === d.id && state.selectedType === "company" ? " selected" : "";
+        return (
+          '<li class="' + sel + '" data-id="' + d.id + '">' +
+            '<div><div class="name">' + escapeHtml(d.name) + '</div>' +
+            '<div class="meta">' + escapeHtml(d.sector) + " · " + escapeHtml(d.province) +
+            (d.uboStatus === "UNKNOWN" ? " · UBO UNKNOWN" : "") +
+            (d.politicalStatus === "TIDAK TERPETAKAN" ? " · PARPOL —" : "") +
+            "</div></div>" +
+            '<div class="hot">' + d.walhiHotspots.toLocaleString("id-ID") + "</div>" +
+          "</li>"
+        );
+      }).join("");
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    /* ---------- Inspector ---------- */
+    function sourceMap(d) {
+      var m = {};
+      (d.sources || []).forEach(function (s) { m[s.id] = s; });
+      return m;
+    }
+
+    function renderSources(d, ids) {
+      var sm = sourceMap(d);
+      var list = ids && ids.length
+        ? ids.map(function (id) { return sm[id]; }).filter(Boolean)
+        : (d.sources || []);
+      if (!list.length) return "<p class=\"insp-empty\">Tidak ada sumber bernama.</p>";
+      return '<ul class="src-list">' + list.map(function (s) {
+        return '<li><a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">' + escapeHtml(s.label) + "</a></li>";
+      }).join("") + "</ul>";
+    }
+
+    function showCompany(d) {
+      state.selectedId = d.id;
+      state.selectedType = "company";
+      renderList();
+
+      var partyTags = (d.politicalTies || []).map(function (t) {
+        var cls = "tag";
+        if (/Golkar/i.test(t.party)) cls += " golkar";
+        else if (/Gerindra/i.test(t.party)) cls += " gerindra";
+        else cls += " amber";
+        return '<span class="' + cls + '">' + escapeHtml(t.party) + "</span>";
+      }).join("");
+      if (d.politicalStatus === "TIDAK TERPETAKAN" || !(d.politicalTies || []).length) {
+        partyTags += '<span class="tag warn">TIDAK TERPETAKAN</span>';
+      }
+
+      var uboTag = d.uboStatus === "UNKNOWN"
+        ? '<span class="tag warn">UBO UNKNOWN</span>'
+        : d.uboStatus === "CAVEAT"
+          ? '<span class="tag warn">UBO CAVEAT</span>'
+          : '<span class="tag ok">UBO TERKUNCI</span>';
+
+      var persons = (d.control.persons || []).map(function (p) {
+        return "<div><strong>" + escapeHtml(p.name) + "</strong><br/><span class=\"meta\" style=\"font-family:var(--font-mono);font-size:11px;color:var(--muted)\">" + escapeHtml(p.role) + "</span></div>";
+      }).join("") || "<div class=\"insp-empty\">Tidak ada person yang dikunci.</div>";
+
+      var ties = (d.politicalTies || []).map(function (t) {
+        return (
+          '<div class="caveat" style="border-color:var(--line)">' +
+            "<strong>" + escapeHtml(t.type) + "</strong> · keyakinan sumber: " + escapeHtml(t.confidence) +
+            "<br/>" + escapeHtml(t.detail) +
+          "</div>"
+        );
+      }).join("") || '<div class="insp-empty">Ikatan politik: TIDAK TERPETAKAN</div>';
+
+      var caves = (d.caveats || []).map(function (c) {
+        return '<div class="caveat">' + escapeHtml(c) + "</div>";
+      }).join("");
+
+      var bounds = boundaryById[d.id] || [];
+      var boundHtml;
+      if (bounds.length) {
+        boundHtml = bounds.map(function (f) {
+          var p = f.properties || {};
+          return (
+            '<div class="caveat" style="border-color:var(--amber)">' +
+              "<strong>Region " + escapeHtml(p.quality || "—") + "</strong>" +
+              (p.source ? "<br/>" + escapeHtml(p.source) : "") +
+              (p.sourceUrl
+                ? '<br/><a href="' + escapeHtml(p.sourceUrl) + '" target="_blank" rel="noopener">sumber geometri</a>'
+                : "") +
+            "</div>"
+          );
+        }).join("");
+      } else {
+        boundHtml =
+          '<div class="insp-empty">Belum ada poligon di <span class="mono">data/boundaries.geojson</span> untuk id <span class="mono">' +
+          escapeHtml(d.id) +
+          "</span>. Tambah Feature dengan <span class=\"mono\">properties.dossierId</span>.</div>";
+      }
+
+      elInsp.innerHTML =
+        '<div class="insp-title">' + escapeHtml(d.name) + "</div>" +
+        '<div class="insp-id">OBJ/' + escapeHtml(d.id.toUpperCase()) + " · ConcessionClaim</div>" +
+        '<div>' +
+          '<span class="tag fire">' + d.walhiHotspots.toLocaleString("id-ID") + " hotspot WALHI</span>" +
+          '<span class="tag amber">' + escapeHtml(d.sector) + "</span>" +
+          (bounds.length
+            ? '<span class="tag ok">REGION ' + bounds.length + "</span>"
+            : '<span class="tag warn">TANPA POLIGON</span>') +
+          uboTag + partyTags +
+        "</div>" +
+        '<dl class="kv">' +
+          "<dt>Provinsi</dt><dd>" + escapeHtml(d.province) + "</dd>" +
+          "<dt>Centroid</dt><dd>" + d.centroid[0].toFixed(4) + ", " + d.centroid[1].toFixed(4) + "</dd>" +
+          "<dt>Grup</dt><dd>" + escapeHtml(d.control.group || "—") + "</dd>" +
+          "<dt>Periode klaim</dt><dd>" + escapeHtml(walhi.period) + "</dd>" +
+        "</dl>" +
+        '<div class="section"><h4>Batas lahan (region)</h4>' + boundHtml + "</div>" +
+        '<div class="section"><h4>Kontrol / UBO</h4><p style="margin:0 0 8px;font-size:14px;line-height:1.4">' +
+          escapeHtml(d.control.summary) + "</p>" + persons + "</div>" +
+        '<div class="section"><h4>Ikatan politik</h4>' + ties +
+          '<p style="font-size:12px;color:var(--muted);margin:8px 0 0">IkatanPolitik = jabatan/kampanye/kekerabatan/kabinet — bukan bukti pembakaran.</p></div>' +
+        '<div class="section"><h4>Caveat</h4>' + caves + "</div>" +
+        '<div class="section"><h4>Sumber bernama</h4>' + renderSources(d) + "</div>" +
+        '<div class="section"><h4>Lapisan</h4><p style="font-size:12px;color:var(--muted);line-height:1.4;margin:0">' +
+          "Ini ConcessionClaim WALHI + Control. Titik FIRMS di peta adalah Detection terpisah — bukan join GIS ke poligon konsesi kecuali kamu sediakan geometri di boundaries.geojson.</p></div>";
+
+      if (state.mode === "map" && map) {
+        flyToConcession(d);
+      }
+      if (state.mode === "graph") drawGraph(d.id);
+    }
+
+    function flyToConcession(d) {
+      var feats = boundaryById[d.id];
+      if (feats && feats.length) {
+        var layer = L.geoJSON({ type: "FeatureCollection", features: feats });
+        var b = layer.getBounds();
+        if (b.isValid()) {
+          map.fitBounds(b.pad(0.15), { maxZoom: 11, animate: true });
+          return;
+        }
+      }
+      map.flyTo(d.centroid, 8, { duration: 0.6 });
+    }
+
+    function showFirmsPoint(p, nearest) {
+      state.selectedId = p.date + "_" + p.lat + "_" + p.lon;
+      state.selectedType = "detection";
+      var nearHtml = nearest
+        ? '<button type="button" class="linkish" id="goto-near" style="background:none;border:0;color:var(--amber);cursor:pointer;padding:0;font:inherit">' +
+            escapeHtml(nearest.name) + " (" + nearest.walhiHotspots + " hotspot klaim)</button>" +
+            '<p style="font-size:12px;color:var(--muted);margin:4px 0 0">Konsesi terdekat (jarak centroid kasar) — <strong>bukan join GIS</strong>.</p>'
+        : '<p class="insp-empty">Tidak ada centroid dossier dalam radius kasar.</p>';
+
+      elInsp.innerHTML =
+        '<div class="insp-title">Deteksi termal</div>' +
+        '<div class="insp-id">DET/FIRMS · Detection</div>' +
+        '<div><span class="tag fire">' + escapeHtml(p.conf) + "</span>" +
+          (p._fallback ? '<span class="tag warn">SIPONGI FALLBACK</span>' : '<span class="tag amber">VIIRS</span>') +
+        "</div>" +
+        '<dl class="kv">' +
+          "<dt>Lat / Lon</dt><dd>" + p.lat + ", " + p.lon + "</dd>" +
+          "<dt>Akuisisi</dt><dd>" + escapeHtml(p.date) + " " + escapeHtml(String(p.time).padStart(4, "0")) + " UTC</dd>" +
+          "<dt>Satelit</dt><dd>" + escapeHtml(p.sat) + "</dd>" +
+          "<dt>bright_ti4</dt><dd>" + (p.b4 != null ? p.b4 : "—") + "</dd>" +
+          "<dt>bright_ti5</dt><dd>" + (p.b5 != null ? p.b5 : "—") + "</dd>" +
+          "<dt>FRP</dt><dd>" + (p.frp != null ? p.frp : "—") + "</dd>" +
+          "<dt>Day/Night</dt><dd>" + escapeHtml(p.dn || "—") + "</dd>" +
+        "</dl>" +
+        '<div class="caveat">Detection ≠ kebakaran terverifikasi lapangan. Bukan atribusi ke perusahaan.</div>' +
+        '<div class="section"><h4>Konsesi terdekat (klaim WALHI)</h4>' + nearHtml + "</div>";
+
+      var btn = document.getElementById("goto-near");
+      if (btn && nearest) {
+        btn.addEventListener("click", function () { showCompany(nearest); });
+      }
+    }
+
+    function nearestConcession(lat, lon) {
+      var best = null, bestD = Infinity;
+      dossiers.forEach(function (d) {
+        var dy = d.centroid[0] - lat;
+        var dx = (d.centroid[1] - lon) * Math.cos(lat * Math.PI / 180);
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestD) { bestD = dist; best = d; }
+      });
+      return bestD < 1.5 ? best : null;
+    }
+
+    /* ---------- Map ---------- */
+    var map = L.map("map", { zoomControl: true, attributionControl: true }).setView([-1.5, 114.5], 6);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OSM &copy; CARTO · FIRMS NASA',
+      subdomains: "abcd",
+      maxZoom: 18
+    }).addTo(map);
+
+    var clusterGroup = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true
+    });
+    map.addLayer(clusterGroup);
+
+    var concessionLayer = L.layerGroup().addTo(map);
+    var regionLayer = L.layerGroup().addTo(map);
+    var regionLayersById = {};
+
+    function fireIcon(conf) {
+      var color = conf === "high" ? "#e23a14" : conf === "low" ? "#7a756c" : "#c45c2a";
+      return L.divIcon({
+        className: "",
+        html: '<div style="width:8px;height:8px;border-radius:50%;background:' + color + ';border:1px solid #090909"></div>',
+        iconSize: [8, 8],
+        iconAnchor: [4, 4]
+      });
+    }
+
+    function currentDate() {
+      return state.dates[state.dateIdx] || null;
+    }
+
+    function firmsForView() {
+      var d = currentDate();
+      return firms.filter(function (p) {
+        if (d && p.date !== d) return false;
+        if (state.conf && p.conf !== state.conf) return false;
+        return true;
+      });
+    }
+
+    function refreshFirmsLayer() {
+      clusterGroup.clearLayers();
+      var pts = firmsForView();
+      var markers = [];
+      for (var i = 0; i < pts.length; i++) {
+        (function (p) {
+          var m = L.marker([p.lat, p.lon], { icon: fireIcon(p.conf) });
+          m.on("click", function () {
+            showFirmsPoint(p, nearestConcession(p.lat, p.lon));
+          });
+          markers.push(m);
+        })(pts[i]);
+      }
+      clusterGroup.addLayers(markers);
+      elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " deteksi" +
+        (state.conf ? " (" + state.conf + ")" : "");
+    }
+
+    function regionStyle(feature, selected) {
+      var q = (feature.properties && feature.properties.quality) || "";
+      var isApprox = /PERKIRAAN/i.test(q);
+      return {
+        color: selected ? "#fff" : "#e3a008",
+        weight: selected ? 2.5 : 1.5,
+        opacity: 1,
+        fillColor: "#e3a008",
+        fillOpacity: selected ? 0.35 : (isApprox ? 0.12 : 0.22),
+        dashArray: isApprox ? "4 3" : null
+      };
+    }
+
+    function refreshConcessionMarkers() {
+      concessionLayer.clearLayers();
+      regionLayer.clearLayers();
+      regionLayersById = {};
+
+      filteredDossiers().forEach(function (d) {
+        var selected = state.selectedType === "company" && state.selectedId === d.id;
+        var feats = boundaryById[d.id] || [];
+
+        if (state.showRegions && feats.length) {
+          var gj = L.geoJSON(
+            { type: "FeatureCollection", features: feats },
+            {
+              style: function (f) { return regionStyle(f, selected); },
+              onEachFeature: function (feature, layer) {
+                layer.on("click", function () { showCompany(d); });
+                layer.bindTooltip(
+                  d.name + ((feature.properties && feature.properties.quality)
+                    ? " · " + feature.properties.quality
+                    : ""),
+                  { sticky: true, opacity: 0.9 }
+                );
+              }
+            }
+          );
+          regionLayer.addLayer(gj);
+          regionLayersById[d.id] = gj;
+        }
+
+        if (state.showCentroids) {
+          var icon = L.divIcon({
+            className: "",
+            html: '<div class="concession-icon" title="' + escapeHtml(d.name) + '">' + d.walhiHotspots + "</div>",
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+          });
+          var m = L.marker(d.centroid, { icon: icon });
+          m.on("click", function () { showCompany(d); });
+          m.bindTooltip(
+            d.name + (feats.length ? " · ada region" : " · tanpa poligon"),
+            { direction: "top", opacity: 0.9 }
+          );
+          concessionLayer.addLayer(m);
+        }
+      });
+    }
+
+    /* ---------- Graph mode ---------- */
+    function drawGraph(focusId) {
+      var svg = document.getElementById("graph-svg");
+      var w = svg.clientWidth || svg.parentElement.clientWidth || 800;
+      var h = svg.clientHeight || svg.parentElement.clientHeight || 600;
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+
+      var visible = filteredDossiers();
+      if (focusId) {
+        var focus = dossiers.find(function (d) { return d.id === focusId; });
+        if (focus && visible.indexOf(focus) === -1) visible = visible.concat([focus]);
+      }
+
+      var nodes = [];
+      var edges = [];
+      var partyNodes = {};
+
+      // Party hubs
+      ["Golkar", "Gerindra", "Kabinet / koalisi", "PDI-P / kampanye"].forEach(function (p, i) {
+        var id = "party:" + p;
+        partyNodes[p] = id;
+        nodes.push({
+          id: id, label: p, type: "party",
+          x: w * 0.12, y: h * (0.2 + i * 0.18)
+        });
+      });
+
+      visible.forEach(function (d, i) {
+        var col = 2 + (i % 3);
+        var row = Math.floor(i / 3);
+        var cx = w * (0.35 + (col - 2) * 0.22);
+        var cy = h * (0.18 + row * 0.2);
+        var cid = "co:" + d.id;
+        nodes.push({ id: cid, label: d.name.replace(/^PT /, ""), type: "company", ref: d.id, x: cx, y: cy });
+
+        // Detection cluster proxy
+        var did = "det:" + d.id;
+        nodes.push({
+          id: did, label: "WALHI " + d.walhiHotspots, type: "detection",
+          x: cx + 40, y: cy - 55
+        });
+        edges.push({ from: did, to: cid, label: "KLAIM_OVERLAY" });
+
+        (d.control.persons || []).forEach(function (p, pi) {
+          var pid = "pe:" + p.id;
+          if (!nodes.some(function (n) { return n.id === pid; })) {
+            nodes.push({
+              id: pid, label: p.name.split(" ")[0], type: "person",
+              x: cx - 30 + pi * 50, y: cy + 70
+            });
+          }
+          edges.push({ from: cid, to: pid, label: "KONTROL" });
+        });
+
+        (d.politicalTies || []).forEach(function (t) {
+          var partyKey = Object.keys(partyNodes).find(function (k) {
+            return t.party.indexOf(k.split(" ")[0]) !== -1 || t.party.indexOf("Kabinet") !== -1 && k.indexOf("Kabinet") !== -1;
+          });
+          if (!partyKey) return;
+          var personNode = "pe:" + t.personId;
+          if (!nodes.some(function (n) { return n.id === personNode; })) {
+            nodes.push({
+              id: personNode, label: t.personId, type: "person",
+              x: cx, y: cy + 70
+            });
+            edges.push({ from: cid, to: personNode, label: "KONTROL" });
+          }
+          edges.push({ from: personNode, to: partyNodes[partyKey], label: "IKATAN" });
+        });
+      });
+
+      // Simple repulsion pass
+      for (var iter = 0; iter < 40; iter++) {
+        for (var a = 0; a < nodes.length; a++) {
+          for (var b = a + 1; b < nodes.length; b++) {
+            var dx = nodes[a].x - nodes[b].x;
+            var dy = nodes[a].y - nodes[b].y;
+            var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist < 90) {
+              var f = (90 - dist) / dist * 0.35;
+              nodes[a].x += dx * f; nodes[a].y += dy * f;
+              nodes[b].x -= dx * f; nodes[b].y -= dy * f;
+            }
+          }
+        }
+        nodes.forEach(function (n) {
+          n.x = Math.max(40, Math.min(w - 40, n.x));
+          n.y = Math.max(30, Math.min(h - 30, n.y));
+        });
+      }
+
+      var byId = {};
+      nodes.forEach(function (n) { byId[n.id] = n; });
+
+      var edgeSvg = edges.map(function (e) {
+        var a = byId[e.from], b = byId[e.to];
+        if (!a || !b) return "";
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        return (
+          '<line x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' + b.y +
+          '" stroke="#2a2a2a" stroke-width="1"/>' +
+          '<text x="' + mx + '" y="' + (my - 4) + '" fill="#7a756c" font-size="9" font-family="IBM Plex Mono, monospace" text-anchor="middle">' +
+          e.label + "</text>"
+        );
+      }).join("");
+
+      var nodeSvg = nodes.map(function (n) {
+        var fill = n.type === "party" ? "#e3a008" : n.type === "company" ? "#1a1a1a" : n.type === "person" ? "#121212" : "#2a1010";
+        var stroke = n.type === "party" ? "#e3a008" : n.type === "detection" ? "#e23a14" : "#2a2a2a";
+        if (n.type === "party" && /Gerindra/i.test(n.label)) { fill = "#3a1010"; stroke = "#c62828"; }
+        var r = n.type === "company" ? 22 : n.type === "party" ? 18 : 14;
+        var hi = focusId && n.ref === focusId ? ' stroke-width="2" stroke="#e3a008"' : ' stroke-width="1"';
+        return (
+          '<g class="gnode" data-type="' + n.type + '" data-ref="' + (n.ref || "") + '" data-id="' + n.id + '" style="cursor:pointer">' +
+            '<circle cx="' + n.x + '" cy="' + n.y + '" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '"' + hi + "/>" +
+            '<text x="' + n.x + '" y="' + (n.y + r + 12) + '" fill="#d8d4cc" font-size="11" font-family="Saira Condensed, sans-serif" text-anchor="middle">' +
+            escapeHtml(n.label.length > 22 ? n.label.slice(0, 20) + "…" : n.label) + "</text></g>"
+        );
+      }).join("");
+
+      svg.innerHTML = edgeSvg + nodeSvg;
+
+      svg.querySelectorAll(".gnode").forEach(function (g) {
+        g.addEventListener("click", function () {
+          var type = g.getAttribute("data-type");
+          var ref = g.getAttribute("data-ref");
+          if (type === "company" && ref) {
+            var d = dossiers.find(function (x) { return x.id === ref; });
+            if (d) showCompany(d);
+          } else if (type === "party") {
+            var label = g.querySelector("text").textContent;
+            elInsp.innerHTML =
+              '<div class="insp-title">' + escapeHtml(label) + "</div>" +
+              '<div class="insp-id">PARTY · hub graf</div>' +
+              '<div class="caveat">Partai adalah lensa navigasi (ADR 002), bukan bukti pembakaran hutan.</div>' +
+              '<p style="font-size:14px;line-height:1.4">Filter browser ke ikatan terkait, atau klik perusahaan yang terhubung via tepi IKATAN.</p>';
+            if (/Golkar/i.test(label)) document.getElementById("f-party").value = "Golkar";
+            if (/Gerindra/i.test(label)) document.getElementById("f-party").value = "Gerindra";
+            state.party = document.getElementById("f-party").value;
+            renderList();
+            refreshConcessionMarkers();
+            drawGraph(focusId);
+          } else if (type === "detection") {
+            elInsp.innerHTML =
+              '<div class="insp-title">DetectionCluster (proxy)</div>' +
+              '<div class="insp-id">DET · overlay</div>' +
+              '<div class="caveat">Node ini merepresentasikan angka hotspot klaim WALHI pada konsesi — bukan titik FIRMS individual.</div>';
+          } else if (type === "person") {
+            var pid = g.getAttribute("data-id").replace(/^pe:/, "");
+            var found = null, host = null;
+            dossiers.forEach(function (d) {
+              (d.control.persons || []).forEach(function (p) {
+                if (p.id === pid) { found = p; host = d; }
+              });
+            });
+            if (found && host) {
+              elInsp.innerHTML =
+                '<div class="insp-title">' + escapeHtml(found.name) + "</div>" +
+                '<div class="insp-id">PERSON/' + escapeHtml(pid) + "</div>" +
+                '<p style="font-size:14px">' + escapeHtml(found.role) + "</p>" +
+                '<p style="font-size:13px;color:var(--muted)">Terhubung ke <button type="button" id="to-host" class="linkish" style="background:none;border:0;color:var(--amber);cursor:pointer;font:inherit">' +
+                escapeHtml(host.name) + "</button></p>";
+              document.getElementById("to-host").addEventListener("click", function () { showCompany(host); });
+            }
+          }
+        });
+      });
+    }
+
+    /* ---------- Mode switch ---------- */
+    function setMode(mode) {
+      state.mode = mode;
+      document.getElementById("btn-map").classList.toggle("active", mode === "map");
+      document.getElementById("btn-graph").classList.toggle("active", mode === "graph");
+      document.getElementById("map").style.display = mode === "map" ? "block" : "none";
+      document.getElementById("graph").style.display = mode === "graph" ? "block" : "none";
+      document.getElementById("map-legend").style.display = mode === "map" ? "block" : "none";
+      if (mode === "map") {
+        setTimeout(function () { map.invalidateSize(); }, 50);
+      } else {
+        drawGraph(state.selectedType === "company" ? state.selectedId : null);
+      }
+    }
+
+    document.getElementById("btn-map").addEventListener("click", function () { setMode("map"); });
+    document.getElementById("btn-graph").addEventListener("click", function () { setMode("graph"); });
+
+    /* ---------- Events ---------- */
+    elList.addEventListener("click", function (e) {
+      var li = e.target.closest("li[data-id]");
+      if (!li) return;
+      var d = dossiers.find(function (x) { return x.id === li.getAttribute("data-id"); });
+      if (d) showCompany(d);
+    });
+
+    document.getElementById("temuan").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-focus]");
+      if (!btn) return;
+      var d = dossiers.find(function (x) { return x.id === btn.getAttribute("data-focus"); });
+      if (d) {
+        setMode(state.mode);
+        showCompany(d);
+      }
+    });
+
+    ["f-prov", "f-sector", "f-party", "f-conf"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", function (e) {
+        if (id === "f-prov") state.prov = e.target.value;
+        if (id === "f-sector") state.sector = e.target.value;
+        if (id === "f-party") state.party = e.target.value;
+        if (id === "f-conf") state.conf = e.target.value;
+        renderList();
+        refreshConcessionMarkers();
+        refreshFirmsLayer();
+        if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
+      });
+    });
+
+    document.getElementById("tog-regions").addEventListener("change", function (e) {
+      state.showRegions = !!e.target.checked;
+      refreshConcessionMarkers();
+    });
+    document.getElementById("tog-centroids").addEventListener("change", function (e) {
+      state.showCentroids = !!e.target.checked;
+      refreshConcessionMarkers();
+    });
+
+    elSearch.addEventListener("input", function (e) {
+      state.search = e.target.value;
+      renderList();
+      refreshConcessionMarkers();
+      if (state.mode === "graph") drawGraph(null);
+    });
+
+    elTime.min = 0;
+    elTime.max = Math.max(0, dates.length - 1);
+    elTime.value = state.dateIdx;
+    elTime.addEventListener("input", function (e) {
+      state.dateIdx = parseInt(e.target.value, 10) || 0;
+      refreshFirmsLayer();
+    });
+
+    window.addEventListener("resize", function () {
+      if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
+    });
+
+    /* ---------- Init ---------- */
+    renderList();
+    refreshConcessionMarkers();
+    refreshFirmsLayer();
+
+    // Temuan stats live
+    if (walhi) {
+      var stat = document.querySelector("#temuan .stat");
+      if (stat) stat.textContent = walhi.pctInConcession + "%";
+    }
+    } // end boot()
+  })();
+  </script>
+</body>
+</html>

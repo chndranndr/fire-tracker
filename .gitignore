@@ -1,0 +1,18 @@
+# Build / probe intermediates (canonical data lives in data/)
+firms_sea_7d.csv
+firms_kalimantan.json
+firms-data.js
+dossiers-data.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
