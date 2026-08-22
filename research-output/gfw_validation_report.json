@@ -1,0 +1,184 @@
+{
+  "ok": false,
+  "expectedCount": 5,
+  "count": 5,
+  "counts": {
+    "bsg": 1,
+    "lar": 1,
+    "sum": 1,
+    "thm1": 1,
+    "thm2": 1
+  },
+  "items": [
+    {
+      "dossierId": "bsg",
+      "dossierName": "PT Bagus Sentosa Gemilang",
+      "dossierProvince": "Kalimantan",
+      "dossierCentroidLatLon": [
+        -0.85,
+        111.85
+      ],
+      "sourceObjectId": 24,
+      "sourceCompany": "PT. Bagus Sentosa Gemilang",
+      "nameExactAfterPtPunctuationNormalization": true,
+      "poLegalStatus": "Ijin Lokasi",
+      "poHgu": " ",
+      "poAreaHgu": 7500,
+      "areaHa": 23095,
+      "groupCompany": "Kaestindo Group",
+      "sourceField": "varies",
+      "gfwid": "50b95966-c22f-419e-8ce5-de2e39ac10f7",
+      "geometryType": "Polygon",
+      "bounds": [
+        117.51953467694521,
+        0.5499758799983061,
+        117.73222134512243,
+        0.7624981959846936
+      ],
+      "valid": true,
+      "validity": "Valid Geometry",
+      "empty": false,
+      "bboxKalimantanIndonesiaScreen": true,
+      "coordinateDimensions": 2,
+      "dossierCentroidCoveredByPolygon": false,
+      "distanceDossierCentroidToPolygonRepresentativePointKm": 661.7
+    },
+    {
+      "dossierId": "lar",
+      "dossierName": "PT Lestari Alam Raya",
+      "dossierProvince": "Kalimantan",
+      "dossierCentroidLatLon": [
+        -2.05,
+        113.2
+      ],
+      "sourceObjectId": 806,
+      "sourceCompany": "PT. Lestari Alam Raya",
+      "nameExactAfterPtPunctuationNormalization": true,
+      "poLegalStatus": " ",
+      "poHgu": " ",
+      "poAreaHgu": 0,
+      "areaHa": 13958,
+      "groupCompany": "No group",
+      "sourceField": "varies",
+      "gfwid": "f7a74034-7e32-4ada-8bea-8d26b6d426dd",
+      "geometryType": "Polygon",
+      "bounds": [
+        108.95999145490981,
+        0.5325132601032612,
+        109.13953399645015,
+        0.6816612480225916
+      ],
+      "valid": true,
+      "validity": "Valid Geometry",
+      "empty": false,
+      "bboxKalimantanIndonesiaScreen": true,
+      "coordinateDimensions": 2,
+      "dossierCentroidCoveredByPolygon": false,
+      "distanceDossierCentroidToPolygonRepresentativePointKm": 550.2
+    },
+    {
+      "dossierId": "thm1",
+      "dossierName": "PT Tri H.M 1",
+      "dossierProvince": "Kalimantan",
+      "dossierCentroidLatLon": [
+        -1.1,
+        112.4
+      ],
+      "sourceObjectId": 824,
+      "sourceCompany": "PT. Tri H.M",
+      "nameExactAfterPtPunctuationNormalization": false,
+      "poLegalStatus": " ",
+      "poHgu": " ",
+      "poAreaHgu": 0,
+      "areaHa": 6933,
+      "groupCompany": "No group",
+      "sourceField": "varies",
+      "gfwid": "cfe2d453-493d-4aba-b4ae-5fcf47225ed7",
+      "geometryType": "Polygon",
+      "bounds": [
+        109.27761840817772,
+        -0.23036102958361224,
+        109.37175750659904,
+        -0.11979826522823132
+      ],
+      "valid": true,
+      "validity": "Valid Geometry",
+      "empty": false,
+      "bboxKalimantanIndonesiaScreen": true,
+      "coordinateDimensions": 2,
+      "dossierCentroidCoveredByPolygon": false,
+      "distanceDossierCentroidToPolygonRepresentativePointKm": 356.7
+    },
+    {
+      "dossierId": "sum",
+      "dossierName": "PT Sumatera Unggul Makmur",
+      "dossierProvince": "Kalimantan",
+      "dossierCentroidLatLon": [
+        -0.55,
+        110.95
+      ],
+      "sourceObjectId": 869,
+      "sourceCompany": "PT. Sumatra Unggul Makmur",
+      "nameExactAfterPtPunctuationNormalization": false,
+      "poLegalStatus": " ",
+      "poHgu": " ",
+      "poAreaHgu": 0,
+      "areaHa": 13581,
+      "groupCompany": "Ganda Group",
+      "sourceField": "varies",
+      "gfwid": "ca36af51-edef-47e3-b6d3-4be4452a3c48",
+      "geometryType": "Polygon",
+      "bounds": [
+        109.0794067379413,
+        1.012296437374914,
+        109.22994232232624,
+        1.1677845722819944
+      ],
+      "valid": true,
+      "validity": "Valid Geometry",
+      "empty": false,
+      "bboxKalimantanIndonesiaScreen": true,
+      "coordinateDimensions": 2,
+      "dossierCentroidCoveredByPolygon": false,
+      "distanceDossierCentroidToPolygonRepresentativePointKm": 272.8
+    },
+    {
+      "dossierId": "thm2",
+      "dossierName": "PT Tri H.M 2",
+      "dossierProvince": "Kalimantan",
+      "dossierCentroidLatLon": [
+        -1.25,
+        112.55
+      ],
+      "sourceObjectId": 972,
+      "sourceCompany": "PT. Tri H.M",
+      "nameExactAfterPtPunctuationNormalization": false,
+      "poLegalStatus": " ",
+      "poHgu": " ",
+      "poAreaHgu": 0,
+      "areaHa": 6933,
+      "groupCompany": "No group",
+      "sourceField": "varies",
+      "gfwid": "7cfc5a65-b668-472a-aec7-2e626612ca32",
+      "geometryType": "Polygon",
+      "bounds": [
+        109.27761840817772,
+        -0.23036102958361224,
+        109.37175750659904,
+        -0.11979826522823132
+      ],
+      "valid": true,
+      "validity": "Valid Geometry",
+      "empty": false,
+      "bboxKalimantanIndonesiaScreen": true,
+      "coordinateDimensions": 2,
+      "dossierCentroidCoveredByPolygon": false,
+      "distanceDossierCentroidToPolygonRepresentativePointKm": 377.6
+    }
+  ],
+  "errors": [
+    "thm1: failed name/bbox/topology validation",
+    "sum: failed name/bbox/topology validation",
+    "thm2: failed name/bbox/topology validation"
+  ]
+}
