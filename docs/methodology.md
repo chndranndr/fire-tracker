@@ -197,7 +197,7 @@ Dashboard **tidak** mengimpor 34 ribu titik WALHI. Yang diambil adalah **12 kons
 
 Setiap dossier punya `centroid: [lat, lon]` untuk navigasi peta/marker. Centroid disusun dari **lokasi operasi yang dipublikasikan** (situs perusahaan, GEM Wiki, pemberitaan lokasi tambang/HTI), **bukan** dari centroid poligon HGU resmi.
 
-Caveat di UI: centroid kasar untuk navigasi; tanpa `boundaries.geojson` tidak ada batas lahan.
+Caveat di UI: centroid tetap kasar untuk navigasi; jika suatu dossier belum memiliki Feature, peta hanya menampilkan centroid dan bukan batas legal.
 
 ### 5.4 Apa yang tidak dilakukan
 
@@ -244,7 +244,9 @@ Ikatan politik adalah **lensa navigasi** (filter partai, hub graf, panel Temuan)
 
 ### 7.1 Status saat dokumentasi ini ditulis
 
-`data/boundaries.geojson` adalah FeatureCollection **kosong** (`features: []`). Fitur peta (poligon, toggle region, `fitBounds`) sudah ada; **geometri belum diisi**.
+Per 22 Agustus 2026, `data/boundaries.geojson` berisi **13 Feature untuk seluruh 12 dossier**. Delapan Feature berasal dari layer resmi BIG/Satu Peta (IUP dan PBPH), sedangkan lima Feature berasal dari layer GFW/WRI oil-palm yang bersifat legacy/incomplete. Satu dossier dapat memiliki lebih dari satu Feature karena izin dapat terpecah (mis. `agm`).
+
+Coverage saat ini: `kideco`, `kpc`, `agm`, `bre`, `adaro`, `dwima`, `kiani` memakai geometri BIG; `bsg`, `thm1`, `thm2`, `lar`, `sum` memakai geometri GFW/WRI. Semua Feature dikueri/diperoleh sebagai WGS84 (`EPSG:4326`/`CRS84`) dan memiliki `source`, `sourceUrl`, `quality`, serta catatan matching di `properties`.
 
 ### 7.2 Metode yang direncanakan untuk mengisi
 
@@ -269,11 +271,18 @@ Ikatan politik adalah **lensa navigasi** (filter partai, hub graf, panel Temuan)
 4. `dossierId` harus cocok dengan `dossiers[].id`.
 5. `quality`: `OFFICIAL` | `GFW` | `PERKIRAAN` (UI memakai gaya garis putus untuk perkiraan).
 
+### 7.2.1 Matching yang dipakai pada coverage lengkap
+
+- BIG mencocokkan operator exact setelah normalisasi awalan `PT`: `KIDECO JAYA AGUNG` → `kideco` dan `ADARO INDONESIA` → `adaro`.
+- GFW/WRI memiliki record terpisah bernama `PT. Tri H.M 1` dan `PT. Tri H.M 2`; masing-masing dipetakan ke `thm1` dan `thm2` berdasarkan `name` dan `gfwid` exact.
+- Record yang hanya menyebut grup, centroid, atau nama yang ambigu tidak dipakai untuk mengisi Feature.
+
 ### 7.3 Percobaan otomatis yang gagal / tidak dipakai
 
-- Query mirror BNPB GFW oil palm → HTTP 403.
+- Probe mirror BNPB GFW oil palm dengan parameter `outFields` sempit → HTTP 403; query full-field manual dapat merespons 200 untuk sebagian nama, tetapi tidak menemukan Kideco/Adaro.
 - Query WRI ArcGIS commodities → timeout.
-- Karena itu MERATUS **tidak** mengklaim poligon publik otomatis pada rilis awal.
+- WFS Nusantara Atlas tersedia, tetapi record `Tri H.M` di sana tergabung menjadi satu nama tanpa pemisahan `1`/`2`; record itu tidak dipakai untuk menghindari assignment ambigu.
+- Coverage yang dipakai berasal dari query BIG yang berhasil dan layer GFW/WRI yang berhasil diunduh dengan `outSR=4326`; layer GFW tetap diberi caveat legacy/incomplete.
 
 Jangan mengisi poligon “dummy” yang tampak resmi.
 
@@ -318,7 +327,7 @@ Checklist sebelum menambah klaim baru ke `dossiers.json`:
 ## 10. Keterbatasan keseluruhan
 
 1. **Dua periode berbeda:** FIRMS snapshot ~7 hari Agustus vs WALHI Jan–Jul — tidak di-overlay sebagai bukti spasial yang sama.
-2. **Tanpa poligon resmi** pada rilis awal → tidak ada densitas hotspot per hektare konsesi di dalam produk.
+2. **Kualitas dan vintage poligon tidak seragam:** delapan Feature berasal dari BIG, sementara lima Feature GFW/WRI berasal dari dataset lama yang diketahui incomplete; coverage ini tidak membuktikan status HGU/IUP aktif pada 2026 dan tidak dipakai untuk densitas hotspot baru.
 3. **Dossier curated 12 PT** → bukan sensus seluruh pemegang izin Kalimantan.
 4. **OSINT politik selektif** → banyak tautan elite tidak masuk karena tidak ada sumber yang memenuhi ambang.
 5. **Fallback SIPONGI** menyebar titik secara sintetis di sekitar pusat provinsi — hanya untuk menjaga kanvas hidup, bukan lokasi akurat.
@@ -341,8 +350,8 @@ C. Control / politik
 D. SIPONGI konteks
    rilis Kemenhut + liputan 17–19 Agu → isi sipongiFallback
 
-E. Boundaries (belum)
-   dapatkan poligon berlisensi → properties.dossierId → data/boundaries.geojson
+E. Boundaries
+   pertahankan Feature yang provenance-nya valid; cari sumber terbuka baru → properties.dossierId → data/boundaries.geojson
 ```
 
 ---

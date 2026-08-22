@@ -16,7 +16,7 @@ boundaries.geojson  (region konsesi di peta)
     properties.dossierId  = id di dossiers.json  (wajib, contoh: "sum")
     properties.quality    = "OFFICIAL" | "GFW" | "PERKIRAAN"
     properties.source     = teks sumber
-    properties.sourceUrl  = URL (opsional)
+    properties.sourceUrl  = URL (wajib; dataset/query URL yang bisa diverifikasi)
     geometry              = Polygon atau MultiPolygon (WGS84 lon/lat)
 
   Contoh satu fitur:
@@ -27,7 +27,7 @@ boundaries.geojson  (region konsesi di peta)
       "name": "PT Sumatera Unggul Makmur",
       "quality": "OFFICIAL",
       "source": "HGU / peta izin yang kamu punya",
-      "sourceUrl": ""
+      "sourceUrl": "https://…"
     },
     "geometry": {
       "type": "Polygon",
