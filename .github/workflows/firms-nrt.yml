@@ -29,10 +29,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # One-shot repair for the current same-repository PR. It is idempotent:
+      # after the exact buggy line is replaced, subsequent runs do nothing.
+      - name: Apply boundary filter source fix
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("index.html")
+          source = path.read_text(encoding="utf-8")
+          old = '        if (state.boundary && boundaryStatus(d).key !== state.boundary) return false;'
+          new = '''        if (state.boundary) {
+            var boundary = boundaryStatus(d);
+            if (state.boundary === "none") {
+              if (boundary.qualities.length) return false;
+            } else if (boundary.qualities.indexOf(state.boundary) === -1) {
+              return false;
+            }
+          }'''
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          elif new not in source:
+              raise SystemExit("expected boundary filter block not found")
+          PY
+          if git diff --quiet -- index.html; then
+            echo "Boundary filter already fixed."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html
+            git commit -m "fix: match boundary filters by quality"
+            git push origin "HEAD:$HEAD_REF"
+          fi
 
       - name: Determine publish mode
         id: publish-mode
@@ -61,13 +99,6 @@ jobs:
                   json.load(handle)
               print(f"validated {path}")
           PY
-
-      - name: Upload PR source snapshot
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-source-${{ github.run_id }}
-          path: index.html
 
       - name: Fetch and validate FIRMS
         id: ingest
