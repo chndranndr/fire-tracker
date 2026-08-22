@@ -1,1 +1,1 @@
-{"pipelineVersion":"3","lastAttemptedSync":"2026-08-22T16:41:21Z","lastSuccessfulSync":"2026-08-22T16:41:21Z","pipelineStatus":"healthy","stale":false,"previousDataPreserved":false}
+{"pipelineVersion":"3","lastAttemptedSync":"2026-08-22T17:36:32Z","lastSuccessfulSync":"2026-08-22T16:41:21Z","pipelineStatus":"stale","stale":true,"error":"<urlopen error [Errno 101] Network is unreachable>","previousDataPreserved":true}
