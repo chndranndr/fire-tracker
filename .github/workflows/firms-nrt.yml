@@ -40,8 +40,38 @@ jobs:
           SHOULD_PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish == true) }}
         run: echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
 
+      # Pull requests must be deterministic. Do not make mergeability depend on
+      # NASA/network availability; live FIRMS checks remain schedule/manual-only.
+      - name: Validate FIRMS pipeline offline
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m py_compile scripts/ingest_firms.py
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for path in (
+              Path("data/firms.json"),
+              Path("data/dossiers.json"),
+              Path("data/boundaries.geojson"),
+              Path("data/kalimantan-indonesia.geojson"),
+          ):
+              with path.open(encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"validated {path}")
+          PY
+
+      - name: Upload PR source snapshot
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-source-${{ github.run_id }}
+          path: index.html
+
       - name: Fetch and validate FIRMS
         id: ingest
+        if: github.event_name != 'pull_request'
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
@@ -52,11 +82,12 @@ jobs:
           set -e
 
       - name: Commit dataset or pipeline status
+        if: github.event_name != 'pull_request'
         env:
           SHOULD_PUBLISH: ${{ steps.publish-mode.outputs.should_publish }}
         run: |
           if [ "$SHOULD_PUBLISH" != "true" ]; then
-            echo "Validation-only run: no commit, push, or production Pages deploy."
+            echo "Validation-only live run: no commit, push, or production Pages deploy."
             git status --short
             exit 0
           fi
@@ -71,38 +102,28 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: Surface ingestion failure
-        if: steps.ingest.outputs.result != '0'
-        run: exit 1
-
-      - name: Upload validation-only outputs
-        if: steps.publish-mode.outputs.should_publish != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: firms-nrt-validation-${{ github.run_id }}
-          path: |
-            data/firms.json
-            data/firms-status.json
-            archive/firms
-
-      # The data commit above uses GITHUB_TOKEN. GitHub deliberately does not
-      # start another push-triggered workflow for that commit, so publish the
-      # same validated workspace through a separate deploy job below.
+      # Upload the exact workspace that was committed above. These steps use
+      # always() so a stale firms-status.json is still published when ingestion
+      # failed; the job is marked failed only after the Pages artifact exists.
       - name: Configure GitHub Pages
-        if: steps.publish-mode.outputs.should_publish == 'true'
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
       - name: Upload refreshed Pages artifact
-        if: steps.publish-mode.outputs.should_publish == 'true'
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
+      - name: Surface ingestion failure
+        if: ${{ always() && github.event_name != 'pull_request' && steps.ingest.outputs.result != '0' }}
+        run: exit 1
+
   deploy:
     needs: ingest
-    if: needs.ingest.outputs.should_publish == 'true'
+    if: ${{ always() && needs.ingest.outputs.should_publish == 'true' }}
     permissions:
       pages: write
       id-token: write
