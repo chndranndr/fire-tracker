@@ -36,7 +36,12 @@ class ConcessionIngestTests(unittest.TestCase):
         self.assertFalse(ingest.geometry_in_region(geometry, self.square))
 
     def test_simplify_ring_preserves_closed_ring(self):
-        ring = [[110.0, 0.0], [110.1, 0.001], [110.2, 0.0], [110.3, 0.001], [110.4, 0.0], [110.0, 0.0]]
+        ring = [
+            [110.0, 0.0], [110.1, 0.0], [110.2, 0.0],
+            [110.2, 0.1], [110.2, 0.2],
+            [110.1, 0.2], [110.0, 0.2],
+            [110.0, 0.1], [110.0, 0.0],
+        ]
         simplified = ingest.simplify_ring(ring, tolerance=0.01)
         self.assertEqual(simplified[0][:2], simplified[-1][:2])
         self.assertLess(len(simplified), len(ring))
