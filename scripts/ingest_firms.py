@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Fetch, validate, normalize, and publish the MERATUS FIRMS dataset.
+"""Fetch, validate, normalize, shard, and publish the MERATUS FIRMS dataset.
 
-The script is deliberately dependency-free so it can run in GitHub Actions.
-It fails closed: a failed or suspicious fetch updates only firms-status.json
-and leaves the last known-good firms.json untouched.
+The pipeline fetches the Indonesia FIRMS window once per satellite, filters
+detections against a checked-in Indonesia country polygon, classifies each
+island polygon into a logical region, and writes region/date shards for the
+static frontend.
+
+During the frontend migration it also keeps writing the legacy data/firms.json
+payload so the current production page remains backwards compatible.
+
+The script is dependency-free so it can run in GitHub Actions. It fails closed:
+a failed or suspicious fetch updates only firms-status.json and leaves the last
+known-good datasets untouched.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -23,22 +32,38 @@ from urllib.request import Request, urlopen
 
 
 API_ROOT = "https://firms.modaps.eosdis.nasa.gov/api/area/"
-AREA = "108.8,-4.5,119.3,4.4"
+AREA = "94.5,-11.5,141.5,6.5"
+COVERAGE_ID = "indonesia"
 SOURCES = (
     ("VIIRS_SNPP_NRT", "S-NPP"),
     ("VIIRS_NOAA20_NRT", "NOAA-20"),
     ("VIIRS_NOAA21_NRT", "NOAA-21"),
 )
 
-# These are conservative filters for the static GitHub Pages pipeline. The
-# country polygon is kept as a checked-in data artifact so a scheduled run
-# does not depend on a second live boundary request.
-KALIMANTAN_BBOX = (108.8, -4.5, 119.3, 4.4)
-DEFAULT_BOUNDARY = Path(__file__).resolve().parent.parent / "data" / "kalimantan-indonesia.geojson"
+INDONESIA_BBOX = (94.5, -11.5, 141.5, 6.5)
+ROOT = Path(__file__).resolve().parent.parent
+# This file already contains the Natural Earth Indonesia MultiPolygon. Its old
+# name is kept temporarily to avoid duplicating a large checked-in artifact.
+DEFAULT_BOUNDARY = ROOT / "data" / "kalimantan-indonesia.geojson"
+DEFAULT_REGIONS = ROOT / "data" / "regions.json"
+DEFAULT_SHARD_ROOT = ROOT / "data" / "hotspots"
+DEFAULT_NATIONAL_STATUS = DEFAULT_SHARD_ROOT / "status.json"
+
 EXPECTED_PLATFORMS = frozenset(platform for _, platform in SOURCES)
 MIN_TOTAL_RETENTION = 0.25
 MIN_SOURCE_RETENTION = 0.50
 MAX_SOURCE_OBSERVATION_AGE_HOURS = 72
+PIPELINE_VERSION = "4"
+
+REGION_ORDER = (
+    "sumatra",
+    "jawa",
+    "kalimantan",
+    "sulawesi",
+    "bali-nusra",
+    "maluku",
+    "papua",
+)
 
 
 def utc_now() -> datetime:
@@ -76,14 +101,11 @@ def parse_csv_body(body: bytes) -> list[dict[str, str]]:
 
 
 def fetch_csv(url: str) -> list[dict[str, str]]:
-    request = Request(url, headers={"User-Agent": "MERATUS FIRMS pipeline/3"})
+    request = Request(url, headers={"User-Agent": "MERATUS FIRMS pipeline/4"})
     try:
         with urlopen(request, timeout=30) as response:
             body = response.read()
     except (URLError, TimeoutError) as urllib_error:
-        # Some hosted runners prefer an unreachable IPv6 route for the NASA
-        # hostname. Retry over IPv4 without putting the secret in a shell
-        # command; curl is present on GitHub's Ubuntu runner.
         try:
             result = subprocess.run(
                 [
@@ -98,7 +120,7 @@ def fetch_csv(url: str) -> list[dict[str, str]]:
                     "--max-time",
                     "90",
                     "--user-agent",
-                    "MERATUS FIRMS pipeline/3",
+                    "MERATUS FIRMS pipeline/4",
                     url,
                 ],
                 check=True,
@@ -186,6 +208,13 @@ def point_in_geometry(lon: float, lat: float, geometry: dict) -> bool:
     return False
 
 
+def iter_polygons(geometry: dict):
+    if geometry.get("type") == "Polygon":
+        yield geometry.get("coordinates", [])
+    elif geometry.get("type") == "MultiPolygon":
+        yield from geometry.get("coordinates", [])
+
+
 def load_boundary_geometry(path: Path) -> tuple[dict, dict]:
     payload = load_json(path)
     features = payload.get("features", []) if isinstance(payload, dict) else []
@@ -196,10 +225,73 @@ def load_boundary_geometry(path: Path) -> tuple[dict, dict]:
     return {"type": "GeometryCollection", "geometries": geometries}, metadata
 
 
-def is_kalimantan_indonesia(lon: float, lat: float, boundary_geometry: dict) -> bool:
-    if not in_box(lon, lat, KALIMANTAN_BBOX):
+def is_indonesia(lon: float, lat: float, boundary_geometry: dict) -> bool:
+    if not in_box(lon, lat, INDONESIA_BBOX):
         return False
     return any(point_in_geometry(lon, lat, geometry) for geometry in boundary_geometry.get("geometries", []))
+
+
+def polygon_centroid_hint(polygon: list[list[list[float]]]) -> tuple[float, float]:
+    """Return a cheap representative point used only to label island components."""
+    if not polygon or not polygon[0]:
+        raise ValueError("cannot classify an empty polygon")
+    ring = polygon[0]
+    points = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+    if not points:
+        raise ValueError("cannot classify a polygon without vertices")
+    return (
+        sum(point[0] for point in points) / len(points),
+        sum(point[1] for point in points) / len(points),
+    )
+
+
+def classify_component(lon: float, lat: float) -> str:
+    """Classify one Natural Earth Indonesia island polygon into a logical region.
+
+    The country boundary already separates individual island polygons, so these
+    centroid rules do not classify raw FIRMS points directly. Raw points are
+    later matched against the resulting region polygons.
+    """
+    if 114.0 <= lon <= 126.5 and lat <= -7.0:
+        return "bali-nusra"
+    if 104.5 <= lon < 115.5 and lat <= -5.0:
+        return "jawa"
+    if lon >= 130.0:
+        if lat <= -5.2 and lon < 136.0:
+            return "maluku"
+        return "papua"
+    if lon >= 124.0:
+        return "maluku"
+    if 117.5 <= lon < 125.5 and -7.0 < lat <= 2.5:
+        return "sulawesi"
+    if 108.5 <= lon < 119.5 and -5.0 < lat <= 5.0:
+        return "kalimantan"
+    return "sumatra"
+
+
+def build_region_geometries(boundary_geometry: dict) -> dict[str, dict]:
+    grouped: dict[str, list] = {region: [] for region in REGION_ORDER}
+    for geometry in boundary_geometry.get("geometries", []):
+        for polygon in iter_polygons(geometry):
+            lon, lat = polygon_centroid_hint(polygon)
+            grouped[classify_component(lon, lat)].append(polygon)
+
+    missing = [region for region, polygons in grouped.items() if not polygons]
+    if missing:
+        raise ValueError(f"Indonesia boundary produced empty logical region(s): {', '.join(missing)}")
+
+    return {
+        region: {"type": "MultiPolygon", "coordinates": polygons}
+        for region, polygons in grouped.items()
+    }
+
+
+def region_for_point(lon: float, lat: float, region_geometries: dict[str, dict]) -> str | None:
+    for region in REGION_ORDER:
+        geometry = region_geometries.get(region)
+        if geometry and point_in_geometry(lon, lat, geometry):
+            return region
+    return None
 
 
 def observation_id(platform: str, date: str, time: str, lat: float, lon: float) -> str:
@@ -211,7 +303,7 @@ def normalize_row(row: dict[str, str], fallback_platform: str, boundary_geometry
     lon = as_float(row, "longitude")
     date = str(row.get("acq_date") or "").strip()
     time = str(row.get("acq_time") or "").strip().zfill(4)
-    if lat is None or lon is None or not date or not is_kalimantan_indonesia(lon, lat, boundary_geometry):
+    if lat is None or lon is None or not date or not is_indonesia(lon, lat, boundary_geometry):
         return None
 
     platform = normalize_platform(row.get("satellite"), fallback_platform)
@@ -264,19 +356,24 @@ def validate(
     previous_meta: dict,
     source_summary: dict[str, dict],
     boundary_geometry: dict,
+    region_geometries: dict[str, dict],
     now: datetime,
 ) -> None:
     if not points:
-        raise ValueError("validation rejected an empty Kalimantan dataset")
-    previous_count = previous_meta.get("count")
+        raise ValueError("validation rejected an empty Indonesia dataset")
+
+    same_coverage = previous_meta.get("coverageId") == COVERAGE_ID
+    previous_count = previous_meta.get("count") if same_coverage else None
     if previous_count and previous_count >= 100 and len(points) < max(100, int(previous_count * MIN_TOTAL_RETENTION)):
         raise ValueError(
             f"validation rejected suspicious aggregate count drop: {len(points)} vs previous {previous_count}"
         )
+
     missing_sources = sorted(EXPECTED_PLATFORMS - set(source_summary))
     if missing_sources:
         raise ValueError(f"validation rejected missing or empty satellite source(s): {', '.join(missing_sources)}")
-    previous_source_counts = previous_meta.get("sourceCounts") or {}
+
+    previous_source_counts = previous_meta.get("sourceCounts") if same_coverage else {}
     if isinstance(previous_source_counts, dict):
         for platform in EXPECTED_PLATFORMS:
             previous_count = previous_source_counts.get(platform)
@@ -285,29 +382,142 @@ def validate(
                 raise ValueError(
                     f"validation rejected suspicious {platform} count drop: {current_count} vs previous {previous_count}"
                 )
+
     for platform, entry in source_summary.items():
         age_hours = (now - entry["newest"]).total_seconds() / 3600
         if age_hours > MAX_SOURCE_OBSERVATION_AGE_HOURS:
             raise ValueError(
                 f"validation rejected stale {platform} observations: newest is {age_hours:.1f} hours old"
             )
+
     for point in points:
         lat, lon = point.get("lat"), point.get("lon")
         if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
             raise ValueError("validation found a non-numeric coordinate")
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
             raise ValueError("validation found an out-of-range coordinate")
-        if not is_kalimantan_indonesia(lon, lat, boundary_geometry):
-            raise ValueError("validation found a point outside the Kalimantan Indonesia filter")
+        if not is_indonesia(lon, lat, boundary_geometry):
+            raise ValueError("validation found a point outside the Indonesia filter")
         if point.get("platform") not in EXPECTED_PLATFORMS:
             raise ValueError(f"validation found an unknown platform: {point.get('platform')}")
         if detection_datetime(point) is None:
             raise ValueError("validation found an invalid acquisition timestamp")
+        if region_for_point(lon, lat, region_geometries) is None:
+            raise ValueError("validation could not assign an Indonesia point to a logical region")
 
 
-def status_payload(previous_meta: dict, error: str) -> dict:
+def load_regions(path: Path) -> list[dict]:
+    payload = load_json(path)
+    regions = payload.get("regions", []) if isinstance(payload, dict) else []
+    ids = [region.get("id") for region in regions]
+    if ids != list(REGION_ORDER):
+        raise ValueError(
+            f"region config order must be {', '.join(REGION_ORDER)}; got {', '.join(str(value) for value in ids)}"
+        )
+    return regions
+
+
+def attach_regions(points: list[dict], region_geometries: dict[str, dict]) -> list[dict]:
+    result = []
+    for point in points:
+        region = region_for_point(point["lon"], point["lat"], region_geometries)
+        if region is None:
+            raise ValueError(
+                f"could not assign point to region: {point.get('observationId', 'unknown')}"
+            )
+        enriched = dict(point)
+        enriched["region"] = region
+        result.append(enriched)
+    return result
+
+
+def write_hotspot_shards(
+    points: list[dict],
+    shard_root: Path,
+    regions: list[dict],
+    meta: dict,
+) -> dict:
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for point in points:
+        grouped[(point["region"], point["date"])].append(point)
+
+    active_paths: set[Path] = set()
+    region_manifest: dict[str, dict] = {}
+
+    for region_meta in regions:
+        region_id = region_meta["id"]
+        region_dir = shard_root / region_id
+        day_entries = []
+        total = 0
+
+        dates = sorted(
+            (date for (region, date) in grouped if region == region_id),
+            reverse=True,
+        )
+        for date in dates:
+            day_points = sorted(
+                grouped[(region_id, date)],
+                key=lambda point: (
+                    point["time"],
+                    point["platform"],
+                    point["lat"],
+                    point["lon"],
+                ),
+            )
+            path = region_dir / f"{date}.json"
+            active_paths.add(path)
+            payload = {
+                "meta": {
+                    "coverageId": COVERAGE_ID,
+                    "region": region_id,
+                    "date": date,
+                    "count": len(day_points),
+                    "lastSuccessfulSync": meta["lastSuccessfulSync"],
+                    "pipelineVersion": PIPELINE_VERSION,
+                },
+                "points": day_points,
+            }
+            write_json_atomic(path, payload)
+            day_entries.append(
+                {
+                    "date": date,
+                    "url": f"data/hotspots/{region_id}/{date}.json",
+                    "count": len(day_points),
+                }
+            )
+            total += len(day_points)
+
+        region_manifest[region_id] = {
+            "label": region_meta["label"],
+            "count": total,
+            "days": day_entries,
+        }
+
+    if shard_root.exists():
+        for path in shard_root.glob("*/*.json"):
+            if path not in active_paths:
+                path.unlink()
+
+    manifest = {
+        "meta": {
+            "coverageId": COVERAGE_ID,
+            "lastSuccessfulSync": meta["lastSuccessfulSync"],
+            "newestDetectionUtc": meta["newestDetectionUtc"],
+            "oldestDetectionUtc": meta["oldestDetectionUtc"],
+            "platforms": meta["platforms"],
+            "count": len(points),
+            "pipelineVersion": PIPELINE_VERSION,
+        },
+        "regions": region_manifest,
+    }
+    write_json_atomic(shard_root / "manifest.json", manifest)
+    return manifest
+
+
+def status_payload(previous_meta: dict, error: str, coverage_id: str = COVERAGE_ID) -> dict:
     return {
-        "pipelineVersion": "3",
+        "coverageId": coverage_id,
+        "pipelineVersion": PIPELINE_VERSION,
         "lastAttemptedSync": iso_utc(utc_now()),
         "lastSuccessfulSync": previous_meta.get("lastSuccessfulSync"),
         "pipelineStatus": "stale",
@@ -317,51 +527,127 @@ def status_payload(previous_meta: dict, error: str) -> dict:
     }
 
 
-def healthy_status_payload(meta: dict) -> dict:
+def healthy_status_payload(meta: dict, coverage_id: str | None = None) -> dict:
     return {
-        "pipelineVersion": meta.get("pipelineVersion", "3"),
+        "coverageId": coverage_id or meta.get("coverageId") or COVERAGE_ID,
+        "pipelineVersion": PIPELINE_VERSION,
         "lastAttemptedSync": meta.get("lastSuccessfulSync"),
         "lastSuccessfulSync": meta.get("lastSuccessfulSync"),
+        "newestDetectionUtc": meta.get("newestDetectionUtc"),
+        "totalPoints": meta.get("count"),
+        "sourceCounts": meta.get("sourceCounts"),
         "pipelineStatus": "healthy",
         "stale": False,
         "previousDataPreserved": False,
     }
 
 
+def coverage_meta(
+    points: list[dict],
+    base_meta: dict,
+    coverage_id: str,
+    filter_description: str,
+) -> dict:
+    if not points:
+        raise ValueError(f"cannot build {coverage_id} metadata from an empty point set")
+    summary = source_observation_summary(points)
+    acquired = [value for point in points if (value := detection_datetime(point)) is not None]
+    meta = dict(base_meta)
+    meta.update(
+        {
+            "coverageId": coverage_id,
+            "parentCoverageId": COVERAGE_ID if coverage_id != COVERAGE_ID else None,
+            "filter": filter_description,
+            "sourceCounts": {
+                platform: entry["count"]
+                for platform, entry in summary.items()
+            },
+            "sourceObservations": {
+                platform: {
+                    "count": entry["count"],
+                    "newestDetectionUtc": iso_utc(entry["newest"]),
+                    "oldestDetectionUtc": iso_utc(entry["oldest"]),
+                }
+                for platform, entry in summary.items()
+            },
+            "newestDetectionUtc": iso_utc(max(acquired)),
+            "oldestDetectionUtc": iso_utc(min(acquired)),
+            "count": len(points),
+        }
+    )
+    if meta.get("parentCoverageId") is None:
+        meta.pop("parentCoverageId", None)
+    return meta
+
+
 def run(args: argparse.Namespace) -> int:
     output_path = Path(args.output)
     status_path = Path(args.status)
-    archive_dir = Path(args.archive_dir)
     boundary_path = Path(args.boundary)
-    previous_payload = load_json(output_path)
-    previous_meta = previous_payload.get("meta", {}) if isinstance(previous_payload, dict) else {}
+    regions_path = Path(args.regions)
+    shard_root = Path(args.shard_root)
+    national_status_path = Path(args.national_status)
+    archive_dir = Path(args.archive_dir) if args.archive_dir else None
+
+    legacy_previous_payload = load_json(output_path)
+    legacy_previous_meta = (
+        legacy_previous_payload.get("meta", {})
+        if isinstance(legacy_previous_payload, dict)
+        else {}
+    )
+    previous_manifest = load_json(shard_root / "manifest.json")
+    previous_meta = (
+        previous_manifest.get("meta", {})
+        if isinstance(previous_manifest, dict)
+        else {}
+    )
     map_key = args.map_key or os.environ.get("FIRMS_MAP_KEY", "").strip()
 
     try:
         if not map_key:
             raise ValueError("FIRMS_MAP_KEY is not configured")
+
         boundary_geometry, boundary_metadata = load_boundary_geometry(boundary_path)
+        region_geometries = build_region_geometries(boundary_geometry)
+        regions = load_regions(regions_path)
 
         all_points: list[dict] = []
         source_urls: dict[str, str] = {}
+
         for source, platform in SOURCES:
             url = f"{API_ROOT}csv/{map_key}/{source}/{AREA}/5"
             source_urls[platform] = API_ROOT
             rows = fetch_csv(url)
             if not rows:
                 raise ValueError(f"FIRMS returned no records for {platform}")
-            normalized = [point for row in rows if (point := normalize_row(row, platform, boundary_geometry)) is not None]
+            normalized = [
+                point
+                for row in rows
+                if (point := normalize_row(row, platform, boundary_geometry)) is not None
+            ]
             if not normalized:
-                raise ValueError(f"FIRMS returned no Kalimantan records for {platform}")
+                raise ValueError(f"FIRMS returned no Indonesia records for {platform}")
             all_points.extend(normalized)
 
         unique: dict[str, dict] = {}
         for point in all_points:
             unique.setdefault(point["observationId"], point)
-        points = sorted(unique.values(), key=lambda point: (point["date"], point["time"], point["platform"], point["lat"], point["lon"]))
+
+        points = sorted(
+            unique.values(),
+            key=lambda point: (
+                point["date"],
+                point["time"],
+                point["platform"],
+                point["lat"],
+                point["lon"],
+            ),
+        )
+
         now = utc_now()
         source_summary = source_observation_summary(points)
-        validate(points, previous_meta, source_summary, boundary_geometry, now)
+        validate(points, previous_meta, source_summary, boundary_geometry, region_geometries, now)
+        points = attach_regions(points, region_geometries)
 
         acquired = [value for point in points if (value := detection_datetime(point)) is not None]
         source_observations = {
@@ -372,7 +658,9 @@ def run(args: argparse.Namespace) -> int:
             }
             for platform, entry in source_summary.items()
         }
+
         meta = {
+            "coverageId": COVERAGE_ID,
             "source": "NASA FIRMS NRT VIIRS",
             "url": API_ROOT,
             "platforms": [platform for _, platform in SOURCES],
@@ -380,30 +668,87 @@ def run(args: argparse.Namespace) -> int:
             "lastSuccessfulSync": iso_utc(now),
             "newestDetectionUtc": iso_utc(max(acquired)),
             "oldestDetectionUtc": iso_utc(min(acquired)),
-            "filter": "Kalimantan Indonesia broad bbox + Natural Earth Indonesia country polygon point-in-polygon",
+            "filter": "Indonesia broad bbox + Natural Earth Indonesia country polygon point-in-polygon",
             "filterBoundary": boundary_metadata,
             "area": AREA,
             "sourceCounts": {platform: entry["count"] for platform, entry in source_summary.items()},
             "sourceObservations": source_observations,
             "count": len(points),
-            "pipelineVersion": "3",
+            "pipelineVersion": PIPELINE_VERSION,
             "pipelineStatus": "healthy",
             "stale": False,
         }
         payload = {"meta": meta, "points": points}
-        archive_path = archive_dir / now.strftime("%Y") / now.strftime("%m") / f"{now.strftime('%d')}.json"
-        write_json_atomic(archive_path, payload)
-        # Publish the validated dataset only after the archive has been staged.
-        # The status write comes last so a fetch/archive failure cannot mark a
-        # still-old dataset as healthy.
-        write_json_atomic(output_path, payload)
-        write_json_atomic(status_path, healthy_status_payload(meta))
-        print(json.dumps({"status": "healthy", "count": len(points), "sources": source_urls}, ensure_ascii=False))
+
+        # Publish the national sharded contract first. The current frontend does
+        # not read it yet, so this can roll out independently from the UI.
+        write_hotspot_shards(points, shard_root, regions, meta)
+        write_json_atomic(national_status_path, healthy_status_payload(meta))
+
+        if archive_dir is not None:
+            archive_path = (
+                archive_dir
+                / now.strftime("%Y")
+                / now.strftime("%m")
+                / f"{now.strftime('%d')}.json"
+            )
+            write_json_atomic(archive_path, payload)
+
+        # Compatibility output for the existing production frontend. Keep it
+        # Kalimantan-only until the UI switches to manifest-driven lazy loading.
+        legacy_points = [point for point in points if point["region"] == "kalimantan"]
+        legacy_meta = coverage_meta(
+            legacy_points,
+            meta,
+            "kalimantan",
+            "Kalimantan logical-region subset derived from the Indonesia FIRMS ingest",
+        )
+        legacy_payload = {"meta": legacy_meta, "points": legacy_points}
+        write_json_atomic(output_path, legacy_payload)
+        write_json_atomic(status_path, healthy_status_payload(legacy_meta, "kalimantan"))
+
+        region_counts = {
+            region["id"]: sum(
+                1 for point in points if point["region"] == region["id"]
+            )
+            for region in regions
+        }
+        print(
+            json.dumps(
+                {
+                    "status": "healthy",
+                    "coverageId": COVERAGE_ID,
+                    "count": len(points),
+                    "legacyKalimantanCount": len(legacy_points),
+                    "regions": region_counts,
+                    "sources": source_urls,
+                },
+                ensure_ascii=False,
+            )
+        )
         return 0
+
     except (HTTPError, URLError, TimeoutError, ValueError, OSError, json.JSONDecodeError) as exc:
-        status = status_payload(previous_meta, str(exc))
-        write_json_atomic(status_path, status)
-        print(json.dumps({"status": "stale", "error": str(exc), "previousDataPreserved": True}, ensure_ascii=False), file=sys.stderr)
+        write_json_atomic(
+            national_status_path,
+            status_payload(previous_meta, str(exc), COVERAGE_ID),
+        )
+        write_json_atomic(
+            status_path,
+            status_payload(legacy_previous_meta, str(exc), "kalimantan"),
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "stale",
+                    "coverageId": COVERAGE_ID,
+                    "error": str(exc),
+                    "previousDataPreserved": True,
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
         return 2
 
 
@@ -412,8 +757,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--map-key", help="NASA FIRMS MAP_KEY; otherwise FIRMS_MAP_KEY")
     parser.add_argument("--output", default="data/firms.json")
     parser.add_argument("--status", default="data/firms-status.json")
-    parser.add_argument("--archive-dir", default="archive/firms")
     parser.add_argument("--boundary", default=str(DEFAULT_BOUNDARY))
+    parser.add_argument("--regions", default=str(DEFAULT_REGIONS))
+    parser.add_argument("--shard-root", default=str(DEFAULT_SHARD_ROOT))
+    parser.add_argument("--national-status", default=str(DEFAULT_NATIONAL_STATUS))
+    parser.add_argument(
+        "--archive-dir",
+        default=None,
+        help="Optional snapshot archive directory. Disabled by default for national-scale data.",
+    )
     return parser.parse_args()
 
 

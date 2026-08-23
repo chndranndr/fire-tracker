@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "coverageId": "indonesia",
+  "regions": {
+    "sumatra": {"available": false, "url": null},
+    "jawa": {"available": false, "url": null},
+    "kalimantan": {"available": true, "url": "data/dossiers/kalimantan.json"},
+    "sulawesi": {"available": false, "url": null},
+    "bali-nusra": {"available": false, "url": null},
+    "maluku": {"available": false, "url": null},
+    "papua": {"available": false, "url": null}
+  }
+}

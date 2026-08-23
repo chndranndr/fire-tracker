@@ -25,8 +25,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Ensure hotspot shard contract exists
+        run: python scripts/bootstrap_hotspot_shards.py
       - name: Apply display-only land holding overlay
         run: python scripts/patch_land_holdings_dashboard.py
+      - name: Apply Indonesia region-aware frontend
+        run: python scripts/patch_region_dashboard.py
       - uses: actions/configure-pages@v5
         with:
           enablement: true
