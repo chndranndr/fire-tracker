@@ -1,0 +1,80 @@
+name: Refresh Kalimantan concession inventory
+
+on:
+  schedule:
+    - cron: "43 2 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/ingest_concessions.py"
+      - "scripts/patch_concession_inventory_dashboard.py"
+      - "tests/test_ingest_concessions.py"
+      - "data/concessions/**"
+      - ".github/workflows/concessions.yml"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/firms-nrt.yml"
+  push:
+    paths:
+      - "scripts/ingest_concessions.py"
+      - "scripts/patch_concession_inventory_dashboard.py"
+      - "tests/test_ingest_concessions.py"
+      - "data/concessions/manifest.json"
+      - "data/concessions/kalimantan/inventory/manifest.json"
+      - ".github/workflows/concessions.yml"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/firms-nrt.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: concession-inventory-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate concession pipeline offline
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m py_compile scripts/ingest_concessions.py scripts/patch_concession_inventory_dashboard.py
+          python -m unittest tests.test_ingest_concessions -v
+          python scripts/patch_land_holdings_dashboard.py
+          python scripts/patch_region_dashboard.py
+          python scripts/patch_concession_inventory_dashboard.py
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("index.html").read_text(encoding="utf-8")
+          assert 'id="tog-inventory"' in html
+          assert 'function refreshConcessionInventoryLayer()' in html
+          assert 'NO FIRE ATTRIBUTION' in html
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.S | re.I)
+          inline = "\n".join(script for script in scripts if script.strip())
+          Path("/tmp/meratus-inline.js").write_text(inline, encoding="utf-8")
+          PY
+          node --check /tmp/meratus-inline.js
+
+      - name: Fetch concession inventory
+        if: github.event_name != 'pull_request'
+        run: python scripts/ingest_concessions.py
+
+      - name: Commit refreshed concession inventory
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/concessions/kalimantan/inventory
+          if git diff --cached --quiet; then
+            echo "No concession inventory changes to publish."
+          else
+            git commit -m "chore(data): refresh Kalimantan concession inventory"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
