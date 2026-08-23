@@ -1,0 +1,384 @@
+{
+  "meta": {
+    "title": "Inventaris lahan/izin terafiliasi Haji Isam dan keluarga di Kalimantan",
+    "asOf": "2026-08-23",
+    "scope": "Inventaris OSINT tambahan untuk hubungan korporasi dan hak/izin lahan. Bukan ConcessionClaim WALHI dan bukan atribusi kebakaran.",
+    "evidenceLayer": "Control",
+    "recordCount": 6,
+    "geometryIncluded": false,
+    "caveats": [
+      "Luas adalah luas HGU/PBPH/IUPHHK yang dilaporkan sumber, bukan luas terbakar dan bukan bukti penguasaan fisik setiap meter persegi.",
+      "Status kontrol dapat memiliki tanggal bukti berbeda dari status izin; field asOf/sourceDate harus dibaca per record.",
+      "PT Taiyoung Engreen hanya terafiliasi melalui kepemilikan minoritas 30% Jhonlin menurut AidEnvironment 2022; jangan disebut dimiliki penuh Haji Isam.",
+      "Tidak ada polygon konsesi ditambahkan karena belum ada GeoJSON/KML/shapefile terbuka berlisensi yang berhasil diverifikasi untuk record ini.",
+      "Relasi keluarga/teman tanpa bukti hak lahan atau kontrol korporasi tidak dimasukkan."
+    ]
+  },
+  "people": [
+    {
+      "id": "haji-isam",
+      "name": "H. Samsudin Andi Arsyad",
+      "aliases": [
+        "Haji Isam"
+      ],
+      "relationToHajiIsam": "self",
+      "sources": [
+        {
+          "label": "JARR Annual Report 2024 — UBO chart",
+          "url": "https://ptjar.com/assets/file/backend/upload/file/laporan/laporan_tahunan/AR_JARR_2024.pdf"
+        },
+        {
+          "label": "detikFinance — prospektus JARR menyebut Haji Samsudin sebagai pengendali/pemilik manfaat",
+          "url": "https://finance.detik.com/bursa-dan-valas/d-6175529/jadi-komut-jhonlin-agro-anak-haji-isam-juga-punya-banyak-perusahaan"
+        }
+      ]
+    },
+    {
+      "id": "liana-saputri",
+      "name": "Liana Saputri",
+      "relationToHajiIsam": "anak",
+      "sources": [
+        {
+          "label": "Katadata — Liana adalah putri sulung Haji Isam",
+          "url": "https://katadata.co.id/finansial/bursa/68722357f063d/profil-liana-saputri-anak-haji-isam-yang-beli-saham-kfc-indonesia-rp-54-miliar"
+        },
+        {
+          "label": "PGUN Annual Report 2024 — controller/beneficial owner",
+          "url": "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf"
+        }
+      ]
+    },
+    {
+      "id": "jhony-saputra",
+      "name": "Jhony Saputra",
+      "relationToHajiIsam": "anak",
+      "sources": [
+        {
+          "label": "detikFinance — prospektus JARR menyebut Jhony anak Haji Isam",
+          "url": "https://finance.detik.com/bursa-dan-valas/d-6175529/jadi-komut-jhonlin-agro-anak-haji-isam-juga-punya-banyak-perusahaan"
+        },
+        {
+          "label": "JARR Annual Report 2024 — UBO/shareholding chart",
+          "url": "https://ptjar.com/assets/file/backend/upload/file/laporan/laporan_tahunan/AR_JARR_2024.pdf"
+        }
+      ]
+    },
+    {
+      "id": "sudirman-andi-arsyad",
+      "name": "H. Sudirman Andi Arsyad",
+      "relationToHajiIsam": "adik kandung",
+      "sources": [
+        {
+          "label": "detikFinance — kutipan prospektus JARR: H. Sudirman adalah adik Haji Samsudin",
+          "url": "https://finance.detik.com/bursa-dan-valas/d-6175529/jadi-komut-jhonlin-agro-anak-haji-isam-juga-punya-banyak-perusahaan"
+        },
+        {
+          "label": "JARR Annual Report 2024 — UBO/shareholding chart",
+          "url": "https://ptjar.com/assets/file/backend/upload/file/laporan/laporan_tahunan/AR_JARR_2024.pdf"
+        }
+      ]
+    }
+  ],
+  "holdings": [
+    {
+      "id": "jarr-hgu",
+      "company": "PT Jhonlin Agro Raya Tbk",
+      "sector": "Sawit",
+      "permitType": "HGU",
+      "areaHa": 27936.72,
+      "province": "Kalimantan Selatan",
+      "regencies": [
+        "Tanah Bumbu",
+        "Kotabaru"
+      ],
+      "permitAsOf": "2025",
+      "permitStatus": "reported-current",
+      "control": {
+        "relationshipType": "ultimate-control",
+        "group": "Jhonlin Group / PT Eshan Agro Sentosa",
+        "persons": [
+          {
+            "personId": "haji-isam",
+            "role": "UBO/pengendali dalam bagan JARR 2024"
+          },
+          {
+            "personId": "jhony-saputra",
+            "role": "anak; muncul dalam bagan UBO dan komisaris JARR"
+          },
+          {
+            "personId": "sudirman-andi-arsyad",
+            "role": "adik Haji Isam; muncul dalam bagan UBO JARR dengan kepemilikan minoritas upstream"
+          }
+        ],
+        "confidence": "tinggi",
+        "asOf": "2024-12-31"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "JARR Sustainability Report 2025 — luas izin usaha 27.936,72 ha",
+          "url": "https://www.ptjar.com/assets/file/backend/upload/file/laporan/laporan_bulanan/Laporan_Keberlanjutan_20257.pdf"
+        },
+        {
+          "type": "hgu-detail",
+          "label": "JARR Annual Report 2024 — daftar SHGU dan total HGU",
+          "url": "https://ptjar.com/assets/file/backend/upload/file/laporan/laporan_tahunan/AR_JARR_2024.pdf"
+        },
+        {
+          "type": "control",
+          "label": "JARR Annual Report 2024 — bagan UBO",
+          "url": "https://ptjar.com/assets/file/backend/upload/file/laporan/laporan_tahunan/AR_JARR_2024.pdf"
+        }
+      ],
+      "caveats": [
+        "Angka 27.936,72 ha sudah mencakup area PT Jhonlin Agro Lestari yang digabung ke JARR; jangan menjumlahkan ulang 10.916,46 ha sebagai konsesi terpisah.",
+        "Record ini tidak menyatakan ada hotspot/kebakaran di HGU tersebut."
+      ]
+    },
+    {
+      "id": "pgun-hgu",
+      "company": "PT Pradiksi Gunatama Tbk",
+      "sector": "Sawit",
+      "permitType": "HGU",
+      "areaHa": 41562.25,
+      "province": "Kalimantan Timur",
+      "regencies": [
+        "Paser"
+      ],
+      "districts": [
+        "Batu Engau"
+      ],
+      "permitAsOf": "2025-12-31",
+      "permitStatus": "reported-current",
+      "control": {
+        "relationshipType": "family-control",
+        "group": "PT Araya Agro Lestari / PT Citra Agro Raya",
+        "persons": [
+          {
+            "personId": "liana-saputri",
+            "role": "pengendali/beneficial owner PGUN; anak Haji Isam"
+          },
+          {
+            "personId": "jhony-saputra",
+            "role": "saudara Liana; pemilik bersama entitas pengendali menurut skema 2024"
+          }
+        ],
+        "confidence": "tinggi",
+        "asOf": "2024-12-31"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "PGUN audited financial statements 2025 — HGU 41.562,25 ha",
+          "url": "https://www.pradiksi.co.id/upload/files/1773795078_PGUN_LAI%20PT%20Pradiksi%20Gunatama%20Tbk_Dec%2031%202025.pdf"
+        },
+        {
+          "type": "control",
+          "label": "PGUN Annual Report 2024 — controller/beneficial owner dan skema pemegang saham",
+          "url": "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf"
+        },
+        {
+          "type": "kinship",
+          "label": "Katadata — Liana dan Jhony adalah anak Haji Isam",
+          "url": "https://katadata.co.id/infografik/6875b3269d53a/infografik-jejaring-bisnis-generasi-kedua-haji-isam"
+        }
+      ],
+      "caveats": [
+        "Laporan PGUN 2024 memuat ketidakkonsistenan masa berlaku HGU di bagian berbeda; laporan audited 2025 menyebut HGU 35 tahun sampai 2033. Luas 41.562,25 ha konsisten.",
+        "Record ini tidak menyatakan ada hotspot/kebakaran di HGU tersebut."
+      ]
+    },
+    {
+      "id": "jam-pbph",
+      "company": "PT Jhonlin Agro Mandiri",
+      "sector": "Hutan Tanaman",
+      "permitType": "PBPH / pemanfaatan HHK hutan tanaman",
+      "areaHa": 17730,
+      "province": "Kalimantan Selatan",
+      "permitNumber": "SK.646/Menlhk/Setjen/HPL.3/9/2021",
+      "permitAsOf": "retrieved 2026-08-23 from Ditjen PHL statistics",
+      "permitStatus": "listed",
+      "control": {
+        "relationshipType": "group-control",
+        "group": "Jhonlin Group",
+        "persons": [
+          {
+            "personId": "haji-isam",
+            "role": "Jhonlin Group owner/control link"
+          },
+          {
+            "personId": "liana-saputri",
+            "role": "komisaris PT Jhonlin Agro Mandiri menurut PGUN Annual Report 2024"
+          }
+        ],
+        "confidence": "sedang",
+        "asOf": "2022-2024"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "KLHK/PHL statistics — PT Jhonlin Agro Mandiri 17.730 ha",
+          "url": "https://phl.kehutanan.go.id/media/statistik/statistik_file_1726677781.pdf"
+        },
+        {
+          "type": "control",
+          "label": "AidEnvironment 2022 — Jhonlin majority ownership of JAM/Inni Joa/Kodeco Timber",
+          "url": "https://aidenvironment.org/five-industrial-tree-plantations-companies-responsible-for-3000-ha-of-forest-clearing-first-quarter-2022/"
+        },
+        {
+          "type": "management",
+          "label": "PGUN Annual Report 2024 — Liana commissioner of PT Jhonlin Agro Mandiri",
+          "url": "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf"
+        }
+      ],
+      "caveats": [
+        "Sumber kontrol mayoritas Jhonlin yang ditemukan bertanggal 2022; status kepemilikan saham setelah itu belum diverifikasi dengan dokumen korporasi primer.",
+        "Jabatan komisaris tidak sama dengan kepemilikan."
+      ]
+    },
+    {
+      "id": "inni-joa-pbph",
+      "company": "PT Inni Joa",
+      "sector": "Hutan Tanaman",
+      "permitType": "PBPH / pemanfaatan HHK hutan tanaman",
+      "areaHa": 28335,
+      "province": "Kalimantan Selatan",
+      "permitNumber": "SK.1528/MENLHK/SETJEN/HPL.0/12/2021",
+      "permitAsOf": "retrieved 2026-08-23 from Ditjen PHL statistics",
+      "permitStatus": "listed",
+      "control": {
+        "relationshipType": "group-control",
+        "group": "Jhonlin Group",
+        "persons": [
+          {
+            "personId": "haji-isam",
+            "role": "Jhonlin Group owner/control link"
+          },
+          {
+            "personId": "liana-saputri",
+            "role": "komisaris PT Inni Joa menurut PGUN Annual Report 2024"
+          }
+        ],
+        "confidence": "sedang",
+        "asOf": "2022-2024"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "KLHK/PHL statistics — PT Inni Joa 28.335 ha",
+          "url": "https://phl.kehutanan.go.id/media/statistik/statistik_file_1726677781.pdf"
+        },
+        {
+          "type": "control",
+          "label": "AidEnvironment 2022 — Jhonlin majority ownership of JAM/Inni Joa/Kodeco Timber",
+          "url": "https://aidenvironment.org/five-industrial-tree-plantations-companies-responsible-for-3000-ha-of-forest-clearing-first-quarter-2022/"
+        },
+        {
+          "type": "management",
+          "label": "PGUN Annual Report 2024 — Liana commissioner of PT Inni Joa",
+          "url": "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf"
+        }
+      ],
+      "caveats": [
+        "Sumber kontrol mayoritas Jhonlin bertanggal 2022; status kepemilikan saham terkini belum diverifikasi dengan dokumen korporasi primer.",
+        "Jabatan komisaris tidak sama dengan kepemilikan."
+      ]
+    },
+    {
+      "id": "kodeco-timber-pbph",
+      "company": "PT Kodeco Timber I",
+      "sector": "Hutan Alam",
+      "permitType": "PBPH / pemanfaatan HHK hutan alam",
+      "areaHa": 65330,
+      "province": "Kalimantan Selatan",
+      "permitNumber": "SK.798/MENLHK/SETJEN/HPL.0/9/2021",
+      "permitAsOf": "retrieved 2026-08-23 from Ditjen PHL statistics",
+      "permitStatus": "listed",
+      "control": {
+        "relationshipType": "group-control",
+        "group": "Jhonlin Group",
+        "persons": [
+          {
+            "personId": "haji-isam",
+            "role": "Jhonlin Group owner/control link"
+          }
+        ],
+        "confidence": "sedang",
+        "asOf": "2022"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "KLHK/PHL statistics — PT Kodeco Timber I 65.330 ha",
+          "url": "https://phl.kehutanan.go.id/media/statistik/statistik_file_1726677781.pdf"
+        },
+        {
+          "type": "control",
+          "label": "AidEnvironment 2022 — Jhonlin majority ownership of JAM/Inni Joa/Kodeco Timber",
+          "url": "https://aidenvironment.org/five-industrial-tree-plantations-companies-responsible-for-3000-ha-of-forest-clearing-first-quarter-2022/"
+        }
+      ],
+      "caveats": [
+        "Sumber kontrol Jhonlin yang ditemukan bertanggal 2022; status pemegang saham terkini belum diverifikasi dengan dokumen korporasi primer.",
+        "Dokumen KLHK lama juga memuat izin hutan tanaman Kodeco 10.600 ha; angka itu tidak dijumlahkan di sini untuk menghindari double count/status izin historis yang tidak jelas."
+      ]
+    },
+    {
+      "id": "taiyoung-engreen-pbph",
+      "company": "PT Taiyoung Engreen",
+      "sector": "Hutan Tanaman",
+      "permitType": "IUPHHK-HTI / PBPH hutan tanaman",
+      "areaHa": 59810,
+      "province": "Kalimantan Tengah",
+      "regencies": [
+        "Gunung Mas"
+      ],
+      "permitNumber": "SK.78/Menhut-II/2009",
+      "permitAsOf": "area: Basis Data Geospasial LHK 2020; company also appears in newer Ditjen PHL statistics",
+      "permitStatus": "listed; area figure from 2020 basis data",
+      "control": {
+        "relationshipType": "minority-equity",
+        "group": "Jhonlin Group",
+        "persons": [
+          {
+            "personId": "haji-isam",
+            "role": "Jhonlin Group owner/control link"
+          },
+          {
+            "personId": "liana-saputri",
+            "role": "komisaris PT Taiyoung Engreen menurut PGUN Annual Report 2024"
+          }
+        ],
+        "jhonlinStakePct": 30,
+        "confidence": "sedang",
+        "asOf": "2022"
+      },
+      "sources": [
+        {
+          "type": "permit-area",
+          "label": "KLHK Basis Data Geospasial LHK 2020 — PT Taiyoung Engreen 59.810 ha",
+          "url": "https://phl.kehutanan.go.id/media/publikasi/1612239357-BUKUBASISDATAGEOSPASIAL2020.pdf"
+        },
+        {
+          "type": "status",
+          "label": "Ditjen PHL statistics — PT Taiyoung Engreen appears in current statistics table",
+          "url": "https://phl.kehutanan.go.id/media/statistik/statistik_file_1726677781.pdf"
+        },
+        {
+          "type": "control",
+          "label": "AidEnvironment 2022 — Jhonlin owns 30% of PT Taiyoung Engreen",
+          "url": "https://aidenvironment.org/five-industrial-tree-plantations-companies-responsible-for-3000-ha-of-forest-clearing-first-quarter-2022/"
+        },
+        {
+          "type": "management",
+          "label": "PGUN Annual Report 2024 — Liana commissioner of PT Taiyoung Engreen",
+          "url": "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf"
+        }
+      ],
+      "caveats": [
+        "Jhonlin hanya dilaporkan memiliki 30% saham pada 2022; ini afiliasi minoritas, bukan kontrol mayoritas.",
+        "Luas 59.810 ha berasal dari basis geospasial KLHK 2020; perlu verifikasi ulang bila dataset PBPH terbaru dengan luas izin tersedia."
+      ]
+    }
+  ]
+}
