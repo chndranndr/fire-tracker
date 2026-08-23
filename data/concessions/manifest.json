@@ -1,17 +1,18 @@
 {
-  "version": 1,
+  "version": 2,
   "coverageId": "indonesia",
   "regions": {
-    "sumatra": {"available": false, "dossiers": null, "boundaries": null},
-    "jawa": {"available": false, "dossiers": null, "boundaries": null},
+    "sumatra": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
+    "jawa": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
     "kalimantan": {
       "available": true,
       "dossiers": "data/dossiers/kalimantan.json",
-      "boundaries": "data/concessions/kalimantan/boundaries.geojson"
+      "boundaries": "data/concessions/kalimantan/boundaries.geojson",
+      "inventory": "data/concessions/kalimantan/inventory/manifest.json"
     },
-    "sulawesi": {"available": false, "dossiers": null, "boundaries": null},
-    "bali-nusra": {"available": false, "dossiers": null, "boundaries": null},
-    "maluku": {"available": false, "dossiers": null, "boundaries": null},
-    "papua": {"available": false, "dossiers": null, "boundaries": null}
+    "sulawesi": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
+    "bali-nusra": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
+    "maluku": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
+    "papua": {"available": false, "dossiers": null, "boundaries": null, "inventory": null}
   }
 }
