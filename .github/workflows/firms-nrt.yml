@@ -45,9 +45,10 @@ jobs:
       - name: Validate FIRMS pipeline offline
         if: github.event_name == 'pull_request'
         run: |
-          python -m py_compile scripts/ingest_firms.py
+          python -m py_compile scripts/ingest_firms.py scripts/patch_land_holdings_dashboard.py
           python -m unittest discover -s tests -p 'test_*.py' -v
           node tests/test_spatial_proximity.js
+          python scripts/patch_land_holdings_dashboard.py --check
           python - <<'PY'
           import json
           from pathlib import Path
@@ -57,6 +58,8 @@ jobs:
               Path("data/dossiers.json"),
               Path("data/boundaries.geojson"),
               Path("data/kalimantan-indonesia.geojson"),
+              Path("data/affiliated-land-holdings.json"),
+              Path("data/affiliated-land-display-centers.json"),
           ):
               with path.open(encoding="utf-8") as handle:
                   json.load(handle)
@@ -104,9 +107,15 @@ jobs:
             git push origin HEAD:main
           fi
 
-      # Upload the exact workspace that was committed above. These steps use
-      # always() so a stale firms-status.json is still published when ingestion
-      # failed; the job is marked failed only after the Pages artifact exists.
+      # The land-holding layer is display-only. Apply it to the Pages workspace
+      # after any FIRMS commit so deployment never drops the schematic circles.
+      - name: Apply display-only land holding overlay
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        run: python scripts/patch_land_holdings_dashboard.py
+
+      # Upload the exact workspace used above. These steps use always() so a stale
+      # firms-status.json is still published when ingestion failed; the job is
+      # marked failed only after the Pages artifact exists.
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/configure-pages@v5
