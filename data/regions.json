@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "coverageId": "indonesia",
+  "regions": [
+    {
+      "id": "sumatra",
+      "label": "Sumatra",
+      "center": [0.3, 101.0],
+      "zoom": 5,
+      "provinces": ["Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Kepulauan Riau", "Jambi", "Sumatera Selatan", "Kepulauan Bangka Belitung", "Bengkulu", "Lampung"]
+    },
+    {
+      "id": "jawa",
+      "label": "Jawa",
+      "center": [-7.2, 110.2],
+      "zoom": 6,
+      "provinces": ["Banten", "DKI Jakarta", "Jawa Barat", "Jawa Tengah", "DI Yogyakarta", "Jawa Timur"]
+    },
+    {
+      "id": "kalimantan",
+      "label": "Kalimantan",
+      "center": [-1.5, 114.5],
+      "zoom": 5,
+      "provinces": ["Kalimantan Barat", "Kalimantan Tengah", "Kalimantan Selatan", "Kalimantan Timur", "Kalimantan Utara"]
+    },
+    {
+      "id": "sulawesi",
+      "label": "Sulawesi",
+      "center": [-2.0, 121.0],
+      "zoom": 5,
+      "provinces": ["Sulawesi Utara", "Gorontalo", "Sulawesi Tengah", "Sulawesi Barat", "Sulawesi Selatan", "Sulawesi Tenggara"]
+    },
+    {
+      "id": "bali-nusra",
+      "label": "Bali & Nusa Tenggara",
+      "center": [-8.8, 119.0],
+      "zoom": 6,
+      "provinces": ["Bali", "Nusa Tenggara Barat", "Nusa Tenggara Timur"]
+    },
+    {
+      "id": "maluku",
+      "label": "Maluku",
+      "center": [-3.0, 128.5],
+      "zoom": 5,
+      "provinces": ["Maluku", "Maluku Utara"]
+    },
+    {
+      "id": "papua",
+      "label": "Papua",
+      "center": [-4.0, 137.0],
+      "zoom": 5,
+      "provinces": ["Papua", "Papua Barat", "Papua Barat Daya", "Papua Selatan", "Papua Tengah", "Papua Pegunungan"]
+    }
+  ]
+}
