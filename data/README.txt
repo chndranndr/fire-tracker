@@ -34,6 +34,31 @@ dossiers.json
                     "centroid": [lat, lon], "uboStatus", "control",
                     "politicalTies", "caveats", "sources" }, ... ] }
 
+affiliated-land-holdings.json
+  Inventaris OSINT hak/izin lahan di Kalimantan yang memiliki hubungan korporasi
+  terverifikasi dengan Haji Isam/Jhonlin atau anggota keluarga yang disebut sumber.
+  File ini adalah lapisan Control tambahan, BUKAN ConcessionClaim WALHI dan BUKAN
+  atribusi kebakaran.
+
+  Struktur utama:
+  { "meta": { "asOf", "recordCount", "geometryIncluded", "caveats" },
+    "people": [ { "id", "name", "relationToHajiIsam", "sources" }, ... ],
+    "holdings": [ { "id", "company", "sector", "permitType", "areaHa",
+                    "province", "permitNumber", "permitStatus", "control",
+                    "sources", "caveats" }, ... ] }
+
+  Aturan evidence:
+  - Setiap record holding harus punya sumber izin/luas dan sumber hubungan kontrol.
+  - Hubungan keluarga, jabatan komisaris, dan kepemilikan saham dibedakan; jabatan
+    komisaris tidak otomatis berarti pemilik.
+  - Kepemilikan minoritas harus diberi label eksplisit dan tidak boleh ditulis
+    sebagai kontrol penuh.
+  - Teman/kerabat tanpa bukti hak lahan atau kontrol korporasi tidak dimasukkan.
+  - Jangan menambahkan `walhiHotspots` ke file ini kecuali ada ConcessionClaim
+    terpisah yang benar-benar menyebut konsesi tersebut.
+  - `geometryIncluded: false` berarti luas izin tidak boleh divisualisasikan sebagai
+    polygon buatan. Boundary baru tetap mengikuti aturan boundaries.geojson.
+
 boundaries.geojson  (region konsesi di peta)
   FeatureCollection. Setiap Feature:
     properties.dossierId  = id di dossiers.json  (wajib, contoh: "sum")
