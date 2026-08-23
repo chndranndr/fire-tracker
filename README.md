@@ -20,6 +20,8 @@ python -m http.server 8765
 
 Buka http://127.0.0.1:8765/index.html.
 
+Catatan: dua patch dashboard mengubah `index.html` di working tree. Untuk mengembalikan source template setelah testing lokal, gunakan Git (`git restore index.html`). Deployment GitHub Pages menjalankan patch yang sama di workspace CI, jadi source template di branch tetap bersih.
+
 Untuk file besar, gunakan server threaded:
 
 ```bash
@@ -65,6 +67,8 @@ Jika fetch gagal, salah satu platform kosong, data stale, atau jumlah observatio
 Pada deploy pertama sebelum national manifest tersedia, [`bootstrap_hotspot_shards.py`](scripts/bootstrap_hotspot_shards.py) dapat membuat manifest Kalimantan sementara dari legacy `data/firms.json`. Setelah scheduled national ingest berhasil, manifest bootstrap otomatis tergantikan oleh shard nasional.
 
 Frontend Pages dibangun dengan dua patch berurutan: [`patch_land_holdings_dashboard.py`](scripts/patch_land_holdings_dashboard.py), lalu [`patch_region_dashboard.py`](scripts/patch_region_dashboard.py). Patch kedua mengaktifkan region selector, national summary, lazy loading per region/tanggal, regional dossier/polygon loading, dan chunked MarkerCluster rendering.
+
+CI membangun hasil patch in-memory dan menjalankan `node --check` terhadap JavaScript hasil build, selain regression test data/spatial existing.
 
 ## Catatan bukti
 
