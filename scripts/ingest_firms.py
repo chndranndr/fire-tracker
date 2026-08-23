@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BOUNDARY = ROOT / "data" / "kalimantan-indonesia.geojson"
 DEFAULT_REGIONS = ROOT / "data" / "regions.json"
 DEFAULT_SHARD_ROOT = ROOT / "data" / "hotspots"
+DEFAULT_NATIONAL_STATUS = DEFAULT_SHARD_ROOT / "status.json"
 
 EXPECTED_PLATFORMS = frozenset(platform for _, platform in SOURCES)
 MIN_TOTAL_RETENTION = 0.25
@@ -513,9 +514,9 @@ def write_hotspot_shards(
     return manifest
 
 
-def status_payload(previous_meta: dict, error: str) -> dict:
+def status_payload(previous_meta: dict, error: str, coverage_id: str = COVERAGE_ID) -> dict:
     return {
-        "coverageId": COVERAGE_ID,
+        "coverageId": coverage_id,
         "pipelineVersion": PIPELINE_VERSION,
         "lastAttemptedSync": iso_utc(utc_now()),
         "lastSuccessfulSync": previous_meta.get("lastSuccessfulSync"),
@@ -526,9 +527,9 @@ def status_payload(previous_meta: dict, error: str) -> dict:
     }
 
 
-def healthy_status_payload(meta: dict) -> dict:
+def healthy_status_payload(meta: dict, coverage_id: str | None = None) -> dict:
     return {
-        "coverageId": COVERAGE_ID,
+        "coverageId": coverage_id or meta.get("coverageId") or COVERAGE_ID,
         "pipelineVersion": PIPELINE_VERSION,
         "lastAttemptedSync": meta.get("lastSuccessfulSync"),
         "lastSuccessfulSync": meta.get("lastSuccessfulSync"),
@@ -541,16 +542,65 @@ def healthy_status_payload(meta: dict) -> dict:
     }
 
 
+def coverage_meta(
+    points: list[dict],
+    base_meta: dict,
+    coverage_id: str,
+    filter_description: str,
+) -> dict:
+    if not points:
+        raise ValueError(f"cannot build {coverage_id} metadata from an empty point set")
+    summary = source_observation_summary(points)
+    acquired = [value for point in points if (value := detection_datetime(point)) is not None]
+    meta = dict(base_meta)
+    meta.update(
+        {
+            "coverageId": coverage_id,
+            "parentCoverageId": COVERAGE_ID if coverage_id != COVERAGE_ID else None,
+            "filter": filter_description,
+            "sourceCounts": {
+                platform: entry["count"]
+                for platform, entry in summary.items()
+            },
+            "sourceObservations": {
+                platform: {
+                    "count": entry["count"],
+                    "newestDetectionUtc": iso_utc(entry["newest"]),
+                    "oldestDetectionUtc": iso_utc(entry["oldest"]),
+                }
+                for platform, entry in summary.items()
+            },
+            "newestDetectionUtc": iso_utc(max(acquired)),
+            "oldestDetectionUtc": iso_utc(min(acquired)),
+            "count": len(points),
+        }
+    )
+    if meta.get("parentCoverageId") is None:
+        meta.pop("parentCoverageId", None)
+    return meta
+
+
 def run(args: argparse.Namespace) -> int:
     output_path = Path(args.output)
     status_path = Path(args.status)
     boundary_path = Path(args.boundary)
     regions_path = Path(args.regions)
     shard_root = Path(args.shard_root)
+    national_status_path = Path(args.national_status)
     archive_dir = Path(args.archive_dir) if args.archive_dir else None
 
-    previous_payload = load_json(output_path)
-    previous_meta = previous_payload.get("meta", {}) if isinstance(previous_payload, dict) else {}
+    legacy_previous_payload = load_json(output_path)
+    legacy_previous_meta = (
+        legacy_previous_payload.get("meta", {})
+        if isinstance(legacy_previous_payload, dict)
+        else {}
+    )
+    previous_manifest = load_json(shard_root / "manifest.json")
+    previous_meta = (
+        previous_manifest.get("meta", {})
+        if isinstance(previous_manifest, dict)
+        else {}
+    )
     map_key = args.map_key or os.environ.get("FIRMS_MAP_KEY", "").strip()
 
     try:
@@ -630,16 +680,32 @@ def run(args: argparse.Namespace) -> int:
         }
         payload = {"meta": meta, "points": points}
 
-        # Stage every publishable artifact before touching the healthy status.
+        # Publish the national sharded contract first. The current frontend does
+        # not read it yet, so this can roll out independently from the UI.
         write_hotspot_shards(points, shard_root, regions, meta)
+        write_json_atomic(national_status_path, healthy_status_payload(meta))
+
         if archive_dir is not None:
-            archive_path = archive_dir / now.strftime("%Y") / now.strftime("%m") / f"{now.strftime('%d')}.json"
+            archive_path = (
+                archive_dir
+                / now.strftime("%Y")
+                / now.strftime("%m")
+                / f"{now.strftime('%d')}.json"
+            )
             write_json_atomic(archive_path, payload)
 
-        # Legacy compatibility output. Remove after the frontend switches to
-        # data/hotspots/manifest.json + region/date lazy loading.
-        write_json_atomic(output_path, payload)
-        write_json_atomic(status_path, healthy_status_payload(meta))
+        # Compatibility output for the existing production frontend. Keep it
+        # Kalimantan-only until the UI switches to manifest-driven lazy loading.
+        legacy_points = [point for point in points if point["region"] == "kalimantan"]
+        legacy_meta = coverage_meta(
+            legacy_points,
+            meta,
+            "kalimantan",
+            "Kalimantan logical-region subset derived from the Indonesia FIRMS ingest",
+        )
+        legacy_payload = {"meta": legacy_meta, "points": legacy_points}
+        write_json_atomic(output_path, legacy_payload)
+        write_json_atomic(status_path, healthy_status_payload(legacy_meta, "kalimantan"))
 
         region_counts = {
             region["id"]: sum(
@@ -653,6 +719,7 @@ def run(args: argparse.Namespace) -> int:
                     "status": "healthy",
                     "coverageId": COVERAGE_ID,
                     "count": len(points),
+                    "legacyKalimantanCount": len(legacy_points),
                     "regions": region_counts,
                     "sources": source_urls,
                 },
@@ -662,8 +729,14 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     except (HTTPError, URLError, TimeoutError, ValueError, OSError, json.JSONDecodeError) as exc:
-        status = status_payload(previous_meta, str(exc))
-        write_json_atomic(status_path, status)
+        write_json_atomic(
+            national_status_path,
+            status_payload(previous_meta, str(exc), COVERAGE_ID),
+        )
+        write_json_atomic(
+            status_path,
+            status_payload(legacy_previous_meta, str(exc), "kalimantan"),
+        )
         print(
             json.dumps(
                 {
@@ -687,6 +760,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--boundary", default=str(DEFAULT_BOUNDARY))
     parser.add_argument("--regions", default=str(DEFAULT_REGIONS))
     parser.add_argument("--shard-root", default=str(DEFAULT_SHARD_ROOT))
+    parser.add_argument("--national-status", default=str(DEFAULT_NATIONAL_STATUS))
     parser.add_argument(
         "--archive-dir",
         default=None,
