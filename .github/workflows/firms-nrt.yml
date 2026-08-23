@@ -50,6 +50,7 @@ jobs:
           node tests/test_spatial_proximity.js
           python scripts/patch_land_holdings_dashboard.py --check
           python - <<'PY'
+          import importlib.util
           import json
           from pathlib import Path
 
@@ -58,12 +59,23 @@ jobs:
               Path("data/dossiers.json"),
               Path("data/boundaries.geojson"),
               Path("data/kalimantan-indonesia.geojson"),
+              Path("data/regions.json"),
               Path("data/affiliated-land-holdings.json"),
               Path("data/affiliated-land-display-centers.json"),
           ):
               with path.open(encoding="utf-8") as handle:
                   json.load(handle)
               print(f"validated {path}")
+
+          spec = importlib.util.spec_from_file_location("ingest_firms", Path("scripts/ingest_firms.py"))
+          ingest_firms = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(ingest_firms)
+          boundary, _ = ingest_firms.load_boundary_geometry(Path("data/kalimantan-indonesia.geojson"))
+          region_geometries = ingest_firms.build_region_geometries(boundary)
+          assert tuple(region_geometries) == ingest_firms.REGION_ORDER
+          assert all(region_geometries[region]["coordinates"] for region in ingest_firms.REGION_ORDER)
+          print("validated Indonesia boundary split into 7 logical regions")
 
           html = Path("index.html").read_text(encoding="utf-8")
           assert 'boundary.qualities.indexOf(state.boundary)' in html
@@ -99,7 +111,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/firms.json data/firms-status.json
-          if [ -d archive/firms ]; then git add archive/firms; fi
+          if [ -d data/hotspots ]; then git add data/hotspots; fi
           if git diff --cached --quiet; then
             echo "No FIRMS or status changes to publish."
           else
