@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "coverageId": "indonesia",
+  "regions": {
+    "sumatra": {"available": false, "dossiers": null, "boundaries": null},
+    "jawa": {"available": false, "dossiers": null, "boundaries": null},
+    "kalimantan": {
+      "available": true,
+      "dossiers": "data/dossiers/kalimantan.json",
+      "boundaries": "data/concessions/kalimantan/boundaries.geojson"
+    },
+    "sulawesi": {"available": false, "dossiers": null, "boundaries": null},
+    "bali-nusra": {"available": false, "dossiers": null, "boundaries": null},
+    "maluku": {"available": false, "dossiers": null, "boundaries": null},
+    "papua": {"available": false, "dossiers": null, "boundaries": null}
+  }
+}
