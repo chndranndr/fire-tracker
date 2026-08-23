@@ -45,10 +45,16 @@ jobs:
       - name: Validate FIRMS pipeline offline
         if: github.event_name == 'pull_request'
         run: |
-          python -m py_compile scripts/ingest_firms.py scripts/patch_land_holdings_dashboard.py
+          python -m py_compile \
+            scripts/ingest_firms.py \
+            scripts/bootstrap_hotspot_shards.py \
+            scripts/patch_land_holdings_dashboard.py \
+            scripts/patch_region_dashboard.py
           python -m unittest discover -s tests -p 'test_*.py' -v
           node tests/test_spatial_proximity.js
-          python scripts/patch_land_holdings_dashboard.py --check
+          python scripts/bootstrap_hotspot_shards.py --check --force
+          python scripts/patch_land_holdings_dashboard.py
+          python scripts/patch_region_dashboard.py
           python - <<'PY'
           import importlib.util
           import json
@@ -60,6 +66,8 @@ jobs:
               Path("data/boundaries.geojson"),
               Path("data/kalimantan-indonesia.geojson"),
               Path("data/regions.json"),
+              Path("data/dossiers/manifest.json"),
+              Path("data/concessions/manifest.json"),
               Path("data/affiliated-land-holdings.json"),
               Path("data/affiliated-land-display-centers.json"),
           ):
@@ -83,7 +91,15 @@ jobs:
           assert 'pointInBoundaryGeometry' in html
           assert 'boundaryGeometryDistanceKm' in html
           assert 'jarak centroid kasar' not in html
-          print("validated boundary filters and polygon-aware hotspot proximity")
+          assert 'id="f-region"' in html
+          assert 'data/hotspots/manifest.json' in html
+          assert 'function selectRegion(regionId, preferredDate)' in html
+          assert 'function refreshNationalSummary()' in html
+          assert 'chunkedLoading: true' in html
+          assert 'loadJson("data/firms.json")' not in html
+          assert 'loadJson("data/dossiers.json")' not in html
+          assert 'loadJson("data/boundaries.geojson")' not in html
+          print("validated region/date lazy loading and removal of legacy bulk frontend loads")
           PY
 
       - name: Fetch and validate FIRMS
@@ -119,15 +135,25 @@ jobs:
             git push origin HEAD:main
           fi
 
-      # The land-holding layer is display-only. Apply it to the Pages workspace
-      # after any FIRMS commit so deployment never drops the schematic circles.
+      # If this is the first deploy before a successful national refresh, build a
+      # temporary Kalimantan-only shard manifest from the legacy dataset.
+      - name: Ensure hotspot shard contract exists
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        run: python scripts/bootstrap_hotspot_shards.py
+
+      # Display-only overlays are injected into the Pages workspace. Apply the
+      # land-holding patch first because the region patch composes on top of it.
       - name: Apply display-only land holding overlay
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         run: python scripts/patch_land_holdings_dashboard.py
 
+      - name: Apply Indonesia region-aware frontend
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        run: python scripts/patch_region_dashboard.py
+
       # Upload the exact workspace used above. These steps use always() so a stale
-      # firms-status.json is still published when ingestion failed; the job is
-      # marked failed only after the Pages artifact exists.
+      # status is still published when ingestion failed; the job is marked failed
+      # only after the Pages artifact exists.
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/configure-pages@v5
