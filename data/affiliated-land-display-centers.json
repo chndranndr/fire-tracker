@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "asOf": "2026-08-23",
+    "purpose": "Display-only centers for schematic equal-area circles. These coordinates are not legal concession centroids or boundaries.",
+    "geometryMeaning": "PERKIRAAN LUAS IZIN — bukan batas legal konsesi",
+    "radiusFormula": "sqrt(areaHa * 10000 / pi)",
+    "caveats": [
+      "Circle area is derived from the reported permit area, but circle shape is schematic.",
+      "Center precision varies by holding and is explicitly labeled.",
+      "Do not use these centers for legal boundary analysis, FIRMS attribution, or point-in-concession claims."
+    ]
+  },
+  "centers": {
+    "jarr-hgu": {
+      "lat": -3.2860090903,
+      "lon": 116.0789532738,
+      "precision": "operational-site reference",
+      "label": "Batu Ampar / Simpang Empat, Tanah Bumbu",
+      "evidence": "JARR official profile confirms Batu Ampar as the operational locality; a published company-profile map provides this coordinate as a plant/location reference.",
+      "sources": [
+        "https://www.ptjar.com/Profil_Perusahaan",
+        "https://www.scribd.com/document/925194205/Company-Profile-PT-Jhonlin-Agro-Raya-Tbk"
+      ]
+    },
+    "pgun-hgu": {
+      "lat": -2.2288611111,
+      "lon": 116.0756666667,
+      "precision": "district-center approximation",
+      "label": "Batu Engau, Paser",
+      "evidence": "PGUN places its operations in Batu Engau; the display center uses the published administrative coordinate for Batu Engau rather than a concession centroid.",
+      "sources": [
+        "https://pradiksi.co.id/upload/files/1746007290_AR%20PT%20PGUN%202024.pdf",
+        "https://web-api.bps.go.id/download.php?f=D3muTDTAbuvdhMxTnNWtDHpDbmtUUUFlY2pONUxQN1JRM05CV0ZCaEZqaVkyQkhGTUsyaUpOeGR4a0hWdnpSU1MvYnVKS3p3Njl1NmxrUWd1SWt2TmVOZytEb2NVQ21tcU1ncDkyNHVkaVllbTlWS2lHdE1pbERycFJSUnl4MU1ZYlI3dGR1TFQzMjMxdS9KbGRkcUxmNTQ1S1lpQ3NubFBVSkh6bXZoSis3Q3FwbFJFMldqYTFvdStmaXI1RHFxLzNwcUppVlgyNTNXbGlrVUhaUlU1Tkl4V2l1c09OMGN6aGhQdWJrRXNmNU5YcFZibUhkUENlU2tVVDVWZ0hFd3RNT2p4SHl1aTNnR1psTEM%3D"
+      ]
+    },
+    "jam-pbph": {
+      "lat": -3.1607694444,
+      "lon": 115.6918555556,
+      "precision": "published concession reference point",
+      "label": "PT Jhonlin Agro Mandiri reference point",
+      "evidence": "AidEnvironment published a satellite figure of the Jhonlin Agro Mandiri concession with this coordinate label. It is used only as a display reference point.",
+      "sources": [
+        "https://www.aidenvironment.org/wp-content/uploads/2021/08/The-need-for-cross-commodity-no-deforestation-policies-by-Aidenvironment.pdf"
+      ]
+    },
+    "inni-joa-pbph": {
+      "lat": -3.4332791667,
+      "lon": 115.6687152778,
+      "precision": "regency-bounds midpoint approximation",
+      "label": "Tanah Bumbu",
+      "evidence": "Government planning material places PT Inni Joa in Tanah Bumbu. The display center is the midpoint of Tanah Bumbu's published geographic bounds, not the PBPH centroid.",
+      "sources": [
+        "https://pktl.menlhk.go.id/assets/img/publication/Buku_Renja_Bidang_I_IDN.pdf",
+        "https://tanahbumbukab.go.id/upload-documents/dokumen/transparasi/apbd_2024/2024_RKPD%20MURNI_FULLBUK.pdf"
+      ]
+    },
+    "kodeco-timber-pbph": {
+      "lat": -3.05,
+      "lon": 115.91,
+      "precision": "multi-regency approximation",
+      "label": "Kotabaru / Tanah Bumbu",
+      "evidence": "KLHK basis data places PT Kodeco Timber across Kotabaru and Tanah Bumbu. This display center is intentionally coarse and is not a concession centroid.",
+      "sources": [
+        "https://phl.menlhk.go.id/static/file/publikasi/1612239357-BUKUBASISDATAGEOSPASIAL2020.pdf"
+      ]
+    },
+    "taiyoung-engreen-pbph": {
+      "lat": -1.4084722222,
+      "lon": 113.7740277778,
+      "precision": "published-bounds midpoint",
+      "label": "Gunung Mas, Kalimantan Tengah",
+      "evidence": "The display center is the midpoint of the published geographic bounds for PT Taiyoung Engreen.",
+      "sources": [
+        "https://repository.umpr.ac.id/331/15/BAB%20II.pdf"
+      ]
+    }
+  }
+}
