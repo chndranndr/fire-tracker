@@ -1,0 +1,627 @@
+{
+  "walhiSummary": {
+    "period": "1 Jan – 27 Jul 2026",
+    "totalKalimantan": 34262,
+    "inConcession": 25524,
+    "pctInConcession": 74,
+    "bySector": {
+      "HGU_sawit": 10739,
+      "tambang": 7880,
+      "PBPH": 6905
+    },
+    "sources": [
+      {
+        "label": "Kompas.id — 74% di konsesi",
+        "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+      },
+      {
+        "label": "Detik — Walhi Kalteng",
+        "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+      }
+    ]
+  },
+  "sipongiFallback": {
+    "period": "17–19 Agu 2026",
+    "note": "High confidence SIPONGI/Kemenhut — dipakai jika lapisan FIRMS tidak tersedia.",
+    "totalHigh": 750,
+    "byProvince": {
+      "Kalimantan Barat": 367,
+      "Kalimantan Tengah": 343,
+      "Kalimantan Selatan": 40
+    },
+    "daily": [
+      {
+        "date": "2026-08-17",
+        "total": 123,
+        "Kalbar": 93,
+        "Kalteng": 28,
+        "Kalsel": 2
+      },
+      {
+        "date": "2026-08-18",
+        "total": 109,
+        "Kalbar": 15,
+        "Kalteng": 73,
+        "Kalsel": 21
+      },
+      {
+        "date": "2026-08-19",
+        "total": 518,
+        "Kalbar": 259,
+        "Kalteng": 242,
+        "Kalsel": 17
+      }
+    ],
+    "sources": [
+      {
+        "label": "Kemenhut — operasi terpadu / SIPONGI",
+        "url": "https://www.kehutanan.go.id/news/pemerintah-perkuat-operasi-terpadu-karhutla-di-kalimantan-tambah-dukungan-udara-dan-pemadaman-darat"
+      },
+      {
+        "label": "Kompas — 750 hotspot",
+        "url": "https://regional.kompas.com/read/2026/08/21/134026378/750-titik-hotspot-terdeteksi-di-kalimantan-pertengahan-agustus-2026"
+      }
+    ]
+  },
+  "dossiers": [
+    {
+      "id": "kideco",
+      "name": "PT Kideco Jaya Agung",
+      "sector": "Tambang",
+      "province": "Kalimantan Timur",
+      "walhiHotspots": 1116,
+      "centroid": [
+        -1.85,
+        115.92
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Indika Energy ~91%; tokoh terkait Agus Lasmono Sudwikatmono & Arsjad Rasjid (Indika).",
+        "group": "Indika Energy",
+        "persons": [
+          {
+            "id": "agus-lasmono",
+            "name": "Agus Lasmono Sudwikatmono",
+            "role": "Pemegang kendali / keluarga Sudwikatmono via Indika"
+          },
+          {
+            "id": "arsjad-rasjid",
+            "name": "Arsjad Rasjid",
+            "role": "Tokoh Indika / publik terkait grup"
+          }
+        ]
+      },
+      "politicalTies": [
+        {
+          "personId": "agus-lasmono",
+          "party": "Golkar",
+          "type": "kekerabatan",
+          "detail": "Keluarga Sudwikatmono; kakak Agus (Tri Hanurita) dikenal sebagai kader Golkar (pemberitaan publik).",
+          "confidence": "sedang",
+          "sources": [
+            "src-kideco-indika",
+            "src-sudwi-golkar"
+          ]
+        },
+        {
+          "personId": "arsjad-rasjid",
+          "party": "PDI-P / kampanye",
+          "type": "peran_kampanye",
+          "detail": "Arsjad Rasjid disebut sebagai ketua Timnas pemenangan Ganjar–Mahfud 2024 (bukan kartu partai permanen).",
+          "confidence": "sedang",
+          "sources": [
+            "src-arsjad-ganjar"
+          ]
+        }
+      ],
+      "caveats": [
+        "Hotspot WALHI = klaim overlay Jan–Jul 2026, bukan join FIRMS 7 hari × poligon IUP.",
+        "Ikatan politik ≠ bukti perusahaan menyulut api."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id — 74% hotspot di konsesi",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        },
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik — ranking konsesi tambang WALHI",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        },
+        {
+          "id": "src-kideco-indika",
+          "label": "Indika Energy — profil Kideco",
+          "url": "https://www.indikaenergy.co.id/"
+        },
+        {
+          "id": "src-sudwi-golkar",
+          "label": "Pemberitaan keluarga Sudwikatmono / Golkar (publik)",
+          "url": "https://www.indikaenergy.co.id/"
+        },
+        {
+          "id": "src-arsjad-ganjar",
+          "label": "Pemberitaan Arsjad ketua Timnas Ganjar 2024",
+          "url": "https://www.antaranews.com/"
+        }
+      ]
+    },
+    {
+      "id": "kpc",
+      "name": "PT Kaltim Prima Coal",
+      "sector": "Tambang",
+      "province": "Kalimantan Timur",
+      "walhiHotspots": 863,
+      "centroid": [
+        0.52,
+        117.48
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Bumi Resources / kelompok Bakrie (KPC sebagai aset batubara utama).",
+        "group": "Bumi Resources / Bakrie",
+        "persons": [
+          {
+            "id": "aburizal-bakrie",
+            "name": "Aburizal Bakrie",
+            "role": "Tokoh keluarga Bakrie / Bumi Resources"
+          }
+        ]
+      },
+      "politicalTies": [
+        {
+          "personId": "aburizal-bakrie",
+          "party": "Golkar",
+          "type": "jabatan_partai",
+          "detail": "Aburizal Bakrie: Ketua Dewan Kehormatan Partai Golkar periode 2024–2029 (pernyataan/pemberitaan partai).",
+          "confidence": "tinggi",
+          "sources": [
+            "src-bakrie-golkar"
+          ]
+        }
+      ],
+      "caveats": [
+        "Kepemilikan saham KPC melibatkan struktur Bumi/Tata historis — ringkasan UI: kontrol Bakrie/Bumi sebagai framing publik.",
+        "Ikatan Golkar pada tokoh ≠ atribusi api ke partai."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        },
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik — KPC 863 hotspot",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        },
+        {
+          "id": "src-bumi",
+          "label": "Bumi Resources — KPC",
+          "url": "https://www.bumiresources.com/"
+        },
+        {
+          "id": "src-bakrie-golkar",
+          "label": "Golkar — Dewan Kehormatan / Aburizal Bakrie",
+          "url": "https://www.golkar.or.id/"
+        }
+      ]
+    },
+    {
+      "id": "agm",
+      "name": "PT Antang Gunung Meratus",
+      "sector": "Tambang",
+      "province": "Kalimantan Selatan",
+      "walhiHotspots": 840,
+      "centroid": [
+        -2.72,
+        115.28
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Anak usaha BSSR (Baramulti Suksessarana); pemegang utama terkait Wahana Sentosa Cemerlang; UBO Ghan Djoe Hiang dilaporkan publik; Tata Power ~26% di BSSR/AGM.",
+        "group": "Baramulti (BSSR) / Wahana Sentosa Cemerlang",
+        "persons": [
+          {
+            "id": "ghan-djoe-hiang",
+            "name": "Ghan Djoe Hiang",
+            "role": "UBO / pengendali terkait Wahana Sentosa Cemerlang (laporan publik)"
+          }
+        ]
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Ikatan parpol tidak ditemukan di sumber terbuka yang dikutip — status TIDAK TERPETAKAN.",
+        "Tata Power adalah pemegang saham asing; bukan ikatan parpol RI."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik — AGM 840 hotspot",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        },
+        {
+          "id": "src-gem-agm",
+          "label": "GEM Wiki — Antang Gunung Meratus / BSSR",
+          "url": "https://www.gem.wiki/PT_Antang_Gunung_Meratus"
+        },
+        {
+          "id": "src-tata-bssr",
+          "label": "Tata Power — stake BSSR/AGM ~26%",
+          "url": "https://www.tatapower.com/"
+        },
+        {
+          "id": "src-tambang-agm",
+          "label": "Tambang.co.id — profil AGM / pemegang saham",
+          "url": "https://tambang.co.id/mengenal-perusahaan-tambang-batubara-pt-antang-gunung-meratus/"
+        }
+      ]
+    },
+    {
+      "id": "bre",
+      "name": "PT Bhumi Rantau Energi",
+      "sector": "Tambang",
+      "province": "Kalimantan Selatan",
+      "walhiHotspots": 618,
+      "centroid": [
+        -2.92,
+        115.12
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Dilaporkan dalam portofolio Hasnur Group (SBU Energy) bersama PT Energi Batubara Lestari; lokasi Tapin, Kalsel. Verifikasi ulang: situs perusahaan juga menyebut struktur Tapin Suthra Berjaya.",
+        "group": "Hasnur Group (klaim situs grup) / Tapin Suthra Berjaya (situs operasi)",
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Jangan isi parpol sebelum sumber mengunci — status TIDAK TERPETAKAN.",
+        "UBO individu tidak dikunci di sumber yang dikutip; kontrol grup Hasnur dari situs resmi grup."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik — BRE 618 hotspot",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        },
+        {
+          "id": "src-hasnur",
+          "label": "Hasnur Group — SBU Energy / Bhumi Rantau Energi",
+          "url": "https://www.hasnurgroup.com/page/our-business/energy"
+        },
+        {
+          "id": "src-suthra",
+          "label": "Suthra Resources — About BRE",
+          "url": "http://www.suthraresources.com/about-us"
+        }
+      ]
+    },
+    {
+      "id": "adaro",
+      "name": "PT Adaro Indonesia",
+      "sector": "Tambang",
+      "province": "Kalimantan Selatan",
+      "walhiHotspots": 355,
+      "centroid": [
+        -2.15,
+        115.55
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Adaro Energy; tokoh publik Boy Thohir / keluarga Thohir (Trinugraha Thohir dkk.).",
+        "group": "Adaro Energy",
+        "persons": [
+          {
+            "id": "boy-thohir",
+            "name": "Garibaldi 'Boy' Thohir",
+            "role": "Tokoh pengendali Adaro (publik)"
+          },
+          {
+            "id": "erick-thohir",
+            "name": "Erick Thohir",
+            "role": "Kakak; Menteri BUMN (ikatan kabinet, bukan kartu partai resmi di dossier ini)"
+          }
+        ]
+      },
+      "politicalTies": [
+        {
+          "personId": "erick-thohir",
+          "party": "Kabinet / koalisi",
+          "type": "kabinet",
+          "detail": "Erick Thohir sebagai menteri — ikatan kabinet/koalisi, bukan keanggotaan partai yang dikunci di sumber dossier.",
+          "confidence": "sedang",
+          "sources": [
+            "src-adaro",
+            "src-erick"
+          ]
+        }
+      ],
+      "caveats": [
+        "Bukan kartu partai resmi untuk Boy Thohir di entri ini — bedakan keluarga vs partai.",
+        "Ikatan kabinet ≠ bukti pembakaran."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik — Adaro 355 hotspot",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        },
+        {
+          "id": "src-prokalteng",
+          "label": "Prokalteng — Dwima & Adaro di daftar WALHI",
+          "url": "https://prokalteng.jawapos.com/prohukrim/pro-kalteng/31/07/2026/pt-dwima-intiga-dan-pt-adaro-masuk-daftar-konsesi-dengan-hotspot-tinggi-versi-walhi/"
+        },
+        {
+          "id": "src-adaro",
+          "label": "Adaro Energy — situs korporat",
+          "url": "https://www.adaro.com/"
+        },
+        {
+          "id": "src-erick",
+          "label": "Profil publik Menteri BUMN Erick Thohir",
+          "url": "https://www.indonesia.go.id/"
+        }
+      ]
+    },
+    {
+      "id": "dwima",
+      "name": "PT Dwima Intiga",
+      "sector": "PBPH",
+      "province": "Kalimantan Tengah",
+      "walhiHotspots": 866,
+      "centroid": [
+        -1.45,
+        113.55
+      ],
+      "uboStatus": "KNOWN",
+      "control": {
+        "summary": "Dwima Group (Kalteng); tokoh publik Eko Pratomo dkk. (pemberitaan lokal).",
+        "group": "Dwima Group",
+        "persons": [
+          {
+            "id": "eko-pratomo",
+            "name": "Eko Pratomo",
+            "role": "Tokoh Dwima Group (pemberitaan)"
+          }
+        ]
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Parpol belum terpetakan — TIDAK TERPETAKAN."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-inibp",
+          "label": "IniBalikpapan — Dwima 866 hotspot PBPH",
+          "url": "https://www.inibalikpapan.com/walhi-mayoritas-hotspot-karhutla-di-kalimantan-berada-di-dalam-konsesi-perusahaan/"
+        },
+        {
+          "id": "src-prokalteng",
+          "label": "Prokalteng — Dwima Intiga",
+          "url": "https://prokalteng.jawapos.com/prohukrim/pro-kalteng/31/07/2026/pt-dwima-intiga-dan-pt-adaro-masuk-daftar-konsesi-dengan-hotspot-tinggi-versi-walhi/"
+        }
+      ]
+    },
+    {
+      "id": "kiani",
+      "name": "PT Kiani Lestari",
+      "sector": "PBPH",
+      "province": "Kalimantan Timur",
+      "walhiHotspots": 707,
+      "centroid": [
+        -1.15,
+        116.72
+      ],
+      "uboStatus": "CAVEAT",
+      "control": {
+        "summary": "Historis: aset Bob Hasan → pembelian 2004 terkait Prabowo (JK, 2024). Gecko Project 2024: status operasional/beneficial ownership entitas terkait landbank Prabowo sering 'Not known' / tidak aktif.",
+        "group": "Historis terkait Prabowo / Kertas Nusantara cluster (caveat)",
+        "persons": [
+          {
+            "id": "prabowo",
+            "name": "Prabowo Subianto",
+            "role": "Dikaitkan pembelian Kiani 2004 (JK); Presiden RI / Gerindra — caveat operasional Gecko"
+          }
+        ]
+      },
+      "politicalTies": [
+        {
+          "personId": "prabowo",
+          "party": "Gerindra",
+          "type": "jabatan_partai",
+          "detail": "Ketua Umum Gerindra / Presiden petahana — ikatan partai pada tokoh, bukan bukti operasional konsesi saat ini.",
+          "confidence": "tinggi",
+          "sources": [
+            "src-jk-kiani",
+            "src-gecko"
+          ]
+        }
+      ],
+      "caveats": [
+        "WAJIB: Gecko Project (2024) meragukan apakah izin/operasi masih dijalankan entitas terkait; tabel landbank menandai PT Kiani Lestari forestry operasional 'No' / beneficial 'Not known'.",
+        "JK 2024 menjelaskan fasilitasi beli pabrik/lahan Kiani dari Bob Hasan via Bank Mandiri (2004) — klaim historis, bukan verifikasi operasi 2026.",
+        "Jangan vonis pidana atau klaim 'Gerindra membakar hutan'."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-inibp",
+          "label": "IniBalikpapan — Kiani 707 hotspot",
+          "url": "https://www.inibalikpapan.com/walhi-mayoritas-hotspot-karhutla-di-kalimantan-berada-di-dalam-konsesi-perusahaan/"
+        },
+        {
+          "id": "src-jk-kiani",
+          "label": "ANTARA — JK fasilitasi Prabowo beli Kiani Lestari",
+          "url": "https://www.antaranews.com/berita/3909366/jk-saya-fasilitasi-prabowo-untuk-beli-pabrik-kertas-di-kalimantan"
+        },
+        {
+          "id": "src-cnn-jk",
+          "label": "CNN Indonesia — JK soal tanah Bob Hasan / Prabowo",
+          "url": "https://www.cnnindonesia.com/ekonomi/20240111090200-92-1047995/jk-ungkap-sebab-tanah-bob-hasan-bisa-dimiliki-prabowo"
+        },
+        {
+          "id": "src-gecko",
+          "label": "The Gecko Project — The President's new clothes",
+          "url": "https://thegeckoproject.org/articles/presidents-new-clothes/"
+        }
+      ]
+    },
+    {
+      "id": "bsg",
+      "name": "PT Bagus Sentosa Gemilang",
+      "sector": "Sawit",
+      "province": "Kalimantan",
+      "walhiHotspots": 637,
+      "centroid": [
+        -0.85,
+        111.85
+      ],
+      "uboStatus": "UNKNOWN",
+      "control": {
+        "summary": "Beneficial owner belum terkunci di pemberitaan WALHI yang dikutip.",
+        "group": null,
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Status UBO UNKNOWN — jangan mengarang grup.",
+        "Centroid kasar untuk navigasi peta, bukan batas HGU."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI — agregat HGU sawit (konteks)",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        },
+        {
+          "id": "src-walhi-detik",
+          "label": "Detik / WALHI ranking (konteks sektor)",
+          "url": "https://www.detik.com/kalimantan/berita/d-8598126/74-hotspot-kalimantan-ada-di-konsesi-perusahaan-ini-kata-walhi-kalteng"
+        }
+      ]
+    },
+    {
+      "id": "thm1",
+      "name": "PT Tri H.M 1",
+      "sector": "Sawit",
+      "province": "Kalimantan",
+      "walhiHotspots": 573,
+      "centroid": [
+        -1.1,
+        112.4
+      ],
+      "uboStatus": "UNKNOWN",
+      "control": {
+        "summary": "UBO UNKNOWN — belum terkunci di sumber WALHI yang dikutip.",
+        "group": null,
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Status UBO UNKNOWN.",
+        "Centroid kasar navigasi saja."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        }
+      ]
+    },
+    {
+      "id": "thm2",
+      "name": "PT Tri H.M 2",
+      "sector": "Sawit",
+      "province": "Kalimantan",
+      "walhiHotspots": 573,
+      "centroid": [
+        -1.25,
+        112.55
+      ],
+      "uboStatus": "UNKNOWN",
+      "control": {
+        "summary": "UBO UNKNOWN — belum terkunci di sumber WALHI yang dikutip.",
+        "group": null,
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Status UBO UNKNOWN.",
+        "Centroid kasar navigasi saja."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        }
+      ]
+    },
+    {
+      "id": "lar",
+      "name": "PT Lestari Alam Raya",
+      "sector": "Sawit",
+      "province": "Kalimantan",
+      "walhiHotspots": 469,
+      "centroid": [
+        -2.05,
+        113.2
+      ],
+      "uboStatus": "UNKNOWN",
+      "control": {
+        "summary": "UBO UNKNOWN — belum terkunci di sumber WALHI yang dikutip.",
+        "group": null,
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Status UBO UNKNOWN.",
+        "Centroid kasar navigasi saja."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        }
+      ]
+    },
+    {
+      "id": "sum",
+      "name": "PT Sumatera Unggul Makmur",
+      "sector": "Sawit",
+      "province": "Kalimantan",
+      "walhiHotspots": 280,
+      "centroid": [
+        -0.55,
+        110.95
+      ],
+      "uboStatus": "UNKNOWN",
+      "control": {
+        "summary": "UBO UNKNOWN — belum terkunci di sumber WALHI yang dikutip. Nama korporasi tidak menyiratkan lokasi operasional.",
+        "group": null,
+        "persons": []
+      },
+      "politicalTies": [],
+      "politicalStatus": "TIDAK TERPETAKAN",
+      "caveats": [
+        "Status UBO UNKNOWN.",
+        "Centroid kasar navigasi saja."
+      ],
+      "sources": [
+        {
+          "id": "src-walhi-74",
+          "label": "WALHI / Kompas.id",
+          "url": "https://www.kompas.id/artikel/74-persen-titik-panas-di-kalimantan-berada-area-konsesi"
+        }
+      ]
+    }
+  ]
+}
