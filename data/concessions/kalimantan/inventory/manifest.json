@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "coverageId": "kalimantan",
+  "pipelineVersion": "1",
+  "pipelineStatus": "bootstrap",
+  "count": 0,
+  "layers": [],
+  "sources": [],
+  "scope": "Public concession/licence inventory for Indonesian Kalimantan. This bootstrap manifest is replaced by the concession ingestion workflow.",
+  "limitations": [
+    "This is not a complete legal cadastre and upstream datasets differ in date and completeness.",
+    "Presence of hotspots within or near a concession is spatial context only, not attribution of fire cause."
+  ]
+}
