@@ -21,6 +21,12 @@ class ConcessionIngestTests(unittest.TestCase):
             "coordinates": [[[[110.0, -2.0], [116.0, -2.0], [116.0, 2.0], [110.0, 2.0], [110.0, -2.0]]]],
         }
 
+    def test_national_bbox_matches_firms_pipeline(self):
+        self.assertEqual(ingest.INDONESIA_BBOX, (94.5, -11.5, 141.5, 6.5))
+        self.assertEqual(tuple(ingest.REGION_ORDER), (
+            "sumatra", "jawa", "kalimantan", "sulawesi", "bali-nusra", "maluku", "papua"
+        ))
+
     def test_geometry_in_region_accepts_inside_polygon(self):
         geometry = {
             "type": "Polygon",
@@ -34,6 +40,94 @@ class ConcessionIngestTests(unittest.TestCase):
             "coordinates": [[[120.0, -1.0], [121.0, -1.0], [121.0, 0.0], [120.0, 0.0], [120.0, -1.0]]],
         }
         self.assertFalse(ingest.geometry_in_region(geometry, self.square))
+
+    def test_multi_polygon_is_split_by_region_without_duplicate_source_fetch(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        region_geometries["sumatra"] = {
+            "type": "Polygon",
+            "coordinates": [[[99.0, -1.0], [101.0, -1.0], [101.0, 1.0], [99.0, 1.0], [99.0, -1.0]]],
+        }
+        region_geometries["kalimantan"] = {
+            "type": "Polygon",
+            "coordinates": [[[112.0, -1.0], [114.0, -1.0], [114.0, 1.0], [112.0, 1.0], [112.0, -1.0]]],
+        }
+        indonesia_boundary = {
+            "type": "GeometryCollection",
+            "geometries": [region_geometries["sumatra"], region_geometries["kalimantan"]],
+        }
+        geometry = {
+            "type": "MultiPolygon",
+            "coordinates": [
+                [[[99.2, -0.8], [100.8, -0.8], [100.8, 0.8], [99.2, 0.8], [99.2, -0.8]]],
+                [[[112.2, -0.8], [113.8, -0.8], [113.8, 0.8], [112.2, 0.8], [112.2, -0.8]]],
+            ],
+        }
+        grouped = ingest.group_geometry_by_region(geometry, region_geometries, indonesia_boundary)
+        self.assertEqual(set(grouped), {"sumatra", "kalimantan"})
+        self.assertEqual(len(grouped["sumatra"]), 1)
+        self.assertEqual(len(grouped["kalimantan"]), 1)
+
+    def test_gfw_polygon_outside_indonesia_mask_has_no_heuristic_region(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        indonesia_boundary = {"type": "GeometryCollection", "geometries": []}
+        polygon = [[[117.0, 5.0], [118.0, 5.0], [118.0, 5.5], [117.0, 5.5], [117.0, 5.0]]]
+        self.assertIsNone(
+            ingest.region_for_polygon(polygon, region_geometries, indonesia_boundary, allow_indonesia_heuristic=False)
+        )
+
+    def test_big_polygon_can_use_indonesia_only_fallback(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        indonesia_boundary = {"type": "GeometryCollection", "geometries": []}
+        polygon = [[[112.0, -1.0], [113.0, -1.0], [113.0, 0.0], [112.0, 0.0], [112.0, -1.0]]]
+        self.assertEqual(
+            ingest.region_for_polygon(polygon, region_geometries, indonesia_boundary, allow_indonesia_heuristic=True),
+            "kalimantan",
+        )
+
+    def test_selected_big_oil_palm_sources_are_explicitly_kalimantan(self):
+        selected = [row for row in ingest.SOURCE_SPECS if row["normalizer"] == "oil_palm_big"]
+        self.assertEqual(len(selected), 4)
+        self.assertTrue(all(row.get("region_hint") == "kalimantan" for row in selected))
+
+    def test_region_hint_overrides_coarse_geometry_classification(self):
+        spec_data = next(row for row in ingest.SOURCE_SPECS if row["id"] == "big-oil-palm-kutai-timur")
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        region_geometries["sulawesi"] = {
+            "type": "Polygon",
+            "coordinates": [[[120.0, -1.0], [121.0, -1.0], [121.0, 0.0], [120.0, 0.0], [120.0, -1.0]]],
+        }
+        feature = {
+            "type": "Feature",
+            "properties": {"OBJECTID": 1, "nama_prsh": "PT Synthetic Sawit"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[120.1, -0.9], [120.9, -0.9], [120.9, -0.1], [120.1, -0.1], [120.1, -0.9]]],
+            },
+        }
+        by_region, unassigned = ingest.normalize_features_by_region(
+            spec_data,
+            [feature],
+            {"objectIdField": "OBJECTID"},
+            region_geometries,
+            {"type": "GeometryCollection", "geometries": []},
+            "2026-08-24T00:00:00Z",
+            {},
+        )
+        self.assertEqual(unassigned, 0)
+        self.assertEqual(len(by_region["kalimantan"]), 1)
+        self.assertEqual(len(by_region["sulawesi"]), 0)
 
     def test_simplify_ring_preserves_closed_ring(self):
         ring = [
