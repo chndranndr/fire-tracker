@@ -49,10 +49,10 @@ SOURCE_SPECS = (
     {"id":"big-forestry-hti","layer":2,"base":BIG_BASE,"output":"forestry-hti.geojson","sector":"PBPH","subtype":"IUPHHK-HTI","quality":"OFFICIAL","required":True,"normalizer":"forestry"},
     {"id":"big-forestry-re","layer":3,"base":BIG_BASE,"output":"forestry-re.geojson","sector":"PBPH","subtype":"IUPHHK-RE","quality":"OFFICIAL","required":True,"normalizer":"forestry"},
     {"id":"big-mining-wiup","layer":4,"base":BIG_BASE,"output":"mining.geojson","sector":"Tambang","subtype":"WIUP","quality":"OFFICIAL","required":True,"normalizer":"mining"},
-    {"id":"big-oil-palm-kutai-barat","layer":36,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big"},
-    {"id":"big-oil-palm-kutai-kartanegara","layer":37,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big"},
-    {"id":"big-oil-palm-kutai-timur","layer":38,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big"},
-    {"id":"big-oil-palm-paser","layer":39,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big"},
+    {"id":"big-oil-palm-kutai-barat","layer":36,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big","region_hint":"kalimantan"},
+    {"id":"big-oil-palm-kutai-kartanegara","layer":37,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big","region_hint":"kalimantan"},
+    {"id":"big-oil-palm-kutai-timur","layer":38,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big","region_hint":"kalimantan"},
+    {"id":"big-oil-palm-paser","layer":39,"base":BIG_BASE,"output":"oil-palm-official.geojson","sector":"Sawit","subtype":"Izin Lokasi Sawit","quality":"OFFICIAL","required":False,"normalizer":"oil_palm_big","region_hint":"kalimantan"},
     {"id":"gfw-oil-palm","layer":6,"base":GFW_BASE,"output":"oil-palm-gfw.geojson","sector":"Sawit","subtype":"Oil palm concession","quality":"GFW","required":False,"normalizer":"oil_palm_gfw"},
 )
 
@@ -215,10 +215,9 @@ def region_for_polygon(polygon, region_geometries, indonesia_boundary, allow_ind
     """Assign one polygon component to one logical region.
 
     Membership against the checked-in country/region polygons wins. For BIG
-    layers, which are Indonesia government datasets, a centroid heuristic is a
-    safe fallback for small islands omitted by the coarse Natural Earth mask.
-    For supplementary GFW data we do not use that fallback, avoiding accidental
-    inclusion of neighbouring-country concessions inside the broad bbox.
+    national layers, a centroid heuristic is allowed only as a last fallback for
+    small islands omitted by the coarse Natural Earth mask. Supplementary GFW
+    data does not use that fallback, avoiding neighbouring-country concessions.
     """
     points = sampled_points(polygon)
     if not points:
@@ -435,12 +434,17 @@ def normalize_features_by_region(spec, features, metadata, region_geometries, in
     for feature in features:
         geometry = feature.get("geometry") or {}
         props = feature.get("properties") or {}
-        parts = group_geometry_by_region(
-            geometry,
-            region_geometries,
-            indonesia_boundary,
-            allow_indonesia_heuristic=(spec["base"] == BIG_BASE),
-        )
+        forced_region = spec.get("region_hint")
+        if forced_region:
+            polygons = polygon_parts(geometry)
+            parts = {forced_region: polygons} if polygons else {}
+        else:
+            parts = group_geometry_by_region(
+                geometry,
+                region_geometries,
+                indonesia_boundary,
+                allow_indonesia_heuristic=(spec["base"] == BIG_BASE),
+            )
         if not parts:
             unassigned += 1
             continue
@@ -615,7 +619,10 @@ def run(args):
                 if spec["required"] and total == 0:
                     raise ValueError("required national source produced zero Indonesia region records")
                 source_entries.append(source_entry(spec,total,region_counts,unassigned=unassigned))
-                print(f"{spec['id']}: {len(raw)} Indonesia-bbox features -> {total} region records; unassigned={unassigned}")
+                print(
+                    f"{spec['id']}: {len(raw)} Indonesia-bbox features -> {total} region records; "
+                    f"unassigned={unassigned}; regions={json.dumps(region_counts, ensure_ascii=False, sort_keys=True)}"
+                )
             except (HTTPError,URLError,TimeoutError,OSError,ValueError,json.JSONDecodeError) as exc:
                 if spec["required"]:
                     raise RuntimeError(f"required source {spec['id']} failed: {exc}") from exc
