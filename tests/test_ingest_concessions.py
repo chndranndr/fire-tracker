@@ -21,6 +21,12 @@ class ConcessionIngestTests(unittest.TestCase):
             "coordinates": [[[[110.0, -2.0], [116.0, -2.0], [116.0, 2.0], [110.0, 2.0], [110.0, -2.0]]]],
         }
 
+    def test_national_bbox_matches_firms_pipeline(self):
+        self.assertEqual(ingest.INDONESIA_BBOX, (94.5, -11.5, 141.5, 6.5))
+        self.assertEqual(tuple(ingest.REGION_ORDER), (
+            "sumatra", "jawa", "kalimantan", "sulawesi", "bali-nusra", "maluku", "papua"
+        ))
+
     def test_geometry_in_region_accepts_inside_polygon(self):
         geometry = {
             "type": "Polygon",
@@ -34,6 +40,58 @@ class ConcessionIngestTests(unittest.TestCase):
             "coordinates": [[[120.0, -1.0], [121.0, -1.0], [121.0, 0.0], [120.0, 0.0], [120.0, -1.0]]],
         }
         self.assertFalse(ingest.geometry_in_region(geometry, self.square))
+
+    def test_multi_polygon_is_split_by_region_without_duplicate_source_fetch(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        region_geometries["sumatra"] = {
+            "type": "Polygon",
+            "coordinates": [[[99.0, -1.0], [101.0, -1.0], [101.0, 1.0], [99.0, 1.0], [99.0, -1.0]]],
+        }
+        region_geometries["kalimantan"] = {
+            "type": "Polygon",
+            "coordinates": [[[112.0, -1.0], [114.0, -1.0], [114.0, 1.0], [112.0, 1.0], [112.0, -1.0]]],
+        }
+        indonesia_boundary = {
+            "type": "GeometryCollection",
+            "geometries": [region_geometries["sumatra"], region_geometries["kalimantan"]],
+        }
+        geometry = {
+            "type": "MultiPolygon",
+            "coordinates": [
+                [[[99.2, -0.8], [100.8, -0.8], [100.8, 0.8], [99.2, 0.8], [99.2, -0.8]]],
+                [[[112.2, -0.8], [113.8, -0.8], [113.8, 0.8], [112.2, 0.8], [112.2, -0.8]]],
+            ],
+        }
+        grouped = ingest.group_geometry_by_region(geometry, region_geometries, indonesia_boundary)
+        self.assertEqual(set(grouped), {"sumatra", "kalimantan"})
+        self.assertEqual(len(grouped["sumatra"]), 1)
+        self.assertEqual(len(grouped["kalimantan"]), 1)
+
+    def test_gfw_polygon_outside_indonesia_mask_has_no_heuristic_region(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        indonesia_boundary = {"type": "GeometryCollection", "geometries": []}
+        polygon = [[[117.0, 5.0], [118.0, 5.0], [118.0, 5.5], [117.0, 5.5], [117.0, 5.0]]]
+        self.assertIsNone(
+            ingest.region_for_polygon(polygon, region_geometries, indonesia_boundary, allow_indonesia_heuristic=False)
+        )
+
+    def test_big_polygon_can_use_indonesia_only_fallback(self):
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        indonesia_boundary = {"type": "GeometryCollection", "geometries": []}
+        polygon = [[[112.0, -1.0], [113.0, -1.0], [113.0, 0.0], [112.0, 0.0], [112.0, -1.0]]]
+        self.assertEqual(
+            ingest.region_for_polygon(polygon, region_geometries, indonesia_boundary, allow_indonesia_heuristic=True),
+            "kalimantan",
+        )
 
     def test_simplify_ring_preserves_closed_ring(self):
         ring = [
