@@ -93,6 +93,42 @@ class ConcessionIngestTests(unittest.TestCase):
             "kalimantan",
         )
 
+    def test_selected_big_oil_palm_sources_are_explicitly_kalimantan(self):
+        selected = [row for row in ingest.SOURCE_SPECS if row["normalizer"] == "oil_palm_big"]
+        self.assertEqual(len(selected), 4)
+        self.assertTrue(all(row.get("region_hint") == "kalimantan" for row in selected))
+
+    def test_region_hint_overrides_coarse_geometry_classification(self):
+        spec_data = next(row for row in ingest.SOURCE_SPECS if row["id"] == "big-oil-palm-kutai-timur")
+        region_geometries = {
+            region: {"type": "MultiPolygon", "coordinates": []}
+            for region in ingest.REGION_ORDER
+        }
+        region_geometries["sulawesi"] = {
+            "type": "Polygon",
+            "coordinates": [[[120.0, -1.0], [121.0, -1.0], [121.0, 0.0], [120.0, 0.0], [120.0, -1.0]]],
+        }
+        feature = {
+            "type": "Feature",
+            "properties": {"OBJECTID": 1, "nama_prsh": "PT Synthetic Sawit"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[120.1, -0.9], [120.9, -0.9], [120.9, -0.1], [120.1, -0.1], [120.1, -0.9]]],
+            },
+        }
+        by_region, unassigned = ingest.normalize_features_by_region(
+            spec_data,
+            [feature],
+            {"objectIdField": "OBJECTID"},
+            region_geometries,
+            {"type": "GeometryCollection", "geometries": []},
+            "2026-08-24T00:00:00Z",
+            {},
+        )
+        self.assertEqual(unassigned, 0)
+        self.assertEqual(len(by_region["kalimantan"]), 1)
+        self.assertEqual(len(by_region["sulawesi"]), 0)
+
     def test_simplify_ring_preserves_closed_ring(self):
         ring = [
             [110.0, 0.0], [110.1, 0.0], [110.2, 0.0],
