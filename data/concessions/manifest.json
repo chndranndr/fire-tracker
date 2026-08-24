@@ -1,18 +1,1 @@
-{
-  "version": 2,
-  "coverageId": "indonesia",
-  "regions": {
-    "sumatra": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
-    "jawa": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
-    "kalimantan": {
-      "available": true,
-      "dossiers": "data/dossiers/kalimantan.json",
-      "boundaries": "data/concessions/kalimantan/boundaries.geojson",
-      "inventory": "data/concessions/kalimantan/inventory/manifest.json"
-    },
-    "sulawesi": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
-    "bali-nusra": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
-    "maluku": {"available": false, "dossiers": null, "boundaries": null, "inventory": null},
-    "papua": {"available": false, "dossiers": null, "boundaries": null, "inventory": null}
-  }
-}
+{"version":3,"coverageId":"indonesia","regions":{"sumatra":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/sumatra/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":1772},"jawa":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/jawa/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":1469},"kalimantan":{"available":true,"dossiers":"data/dossiers/kalimantan.json","boundaries":"data/concessions/kalimantan/boundaries.geojson","inventory":"data/concessions/kalimantan/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":3051},"sulawesi":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/sulawesi/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":631},"bali-nusra":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/bali-nusra/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":107},"maluku":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/maluku/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":153},"papua":{"available":false,"dossiers":null,"boundaries":null,"inventory":"data/concessions/papua/inventory/manifest.json","inventoryAvailable":true,"inventoryCount":84}}}
