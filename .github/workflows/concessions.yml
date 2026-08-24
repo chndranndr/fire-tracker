@@ -74,6 +74,12 @@ jobs:
           PY
           node --check /tmp/meratus-inline.js
 
+      - name: Preview live Indonesia concession fetch
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: python scripts/ingest_concessions.py
+
       - name: Fetch and shard Indonesia concession inventory
         if: github.event_name != 'pull_request'
         run: python scripts/ingest_concessions.py
