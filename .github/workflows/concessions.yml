@@ -75,11 +75,11 @@ jobs:
           node --check /tmp/meratus-inline.js
 
       - name: Fetch and shard Indonesia concession inventory
-        if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+        if: github.event_name != 'pull_request'
         run: python scripts/ingest_concessions.py
 
       - name: Commit refreshed Indonesia concession inventory
-        if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
