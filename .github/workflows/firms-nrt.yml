@@ -49,15 +49,18 @@ jobs:
             scripts/ingest_firms.py \
             scripts/bootstrap_hotspot_shards.py \
             scripts/patch_land_holdings_dashboard.py \
-            scripts/patch_region_dashboard.py
+            scripts/patch_region_dashboard.py \
+            scripts/patch_concession_inventory_dashboard.py
           python -m unittest discover -s tests -p 'test_*.py' -v
           node tests/test_spatial_proximity.js
           python scripts/bootstrap_hotspot_shards.py --check --force
           python scripts/patch_land_holdings_dashboard.py
           python scripts/patch_region_dashboard.py
+          python scripts/patch_concession_inventory_dashboard.py
           python - <<'PY'
           import importlib.util
           import json
+          import re
           from pathlib import Path
 
           for path in (
@@ -68,6 +71,7 @@ jobs:
               Path("data/regions.json"),
               Path("data/dossiers/manifest.json"),
               Path("data/concessions/manifest.json"),
+              Path("data/concessions/kalimantan/inventory/manifest.json"),
               Path("data/affiliated-land-holdings.json"),
               Path("data/affiliated-land-display-centers.json"),
           ):
@@ -99,8 +103,15 @@ jobs:
           assert 'loadJson("data/firms.json")' not in html
           assert 'loadJson("data/dossiers.json")' not in html
           assert 'loadJson("data/boundaries.geojson")' not in html
-          print("validated region/date lazy loading and removal of legacy bulk frontend loads")
+          assert 'id="tog-inventory"' in html
+          assert 'function refreshConcessionInventoryLayer()' in html
+          assert 'NO FIRE ATTRIBUTION' in html
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.S | re.I)
+          inline = "\n".join(script for script in scripts if script.strip())
+          Path("/tmp/meratus-inline.js").write_text(inline, encoding="utf-8")
+          print("validated region/date lazy loading and concession inventory integration")
           PY
+          node --check /tmp/meratus-inline.js
 
       - name: Fetch and validate FIRMS
         id: ingest
@@ -142,7 +153,7 @@ jobs:
         run: python scripts/bootstrap_hotspot_shards.py
 
       # Display-only overlays are injected into the Pages workspace. Apply the
-      # land-holding patch first because the region patch composes on top of it.
+      # land-holding patch first, then the regional loader, then broad concession inventory.
       - name: Apply display-only land holding overlay
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         run: python scripts/patch_land_holdings_dashboard.py
@@ -150,6 +161,10 @@ jobs:
       - name: Apply Indonesia region-aware frontend
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         run: python scripts/patch_region_dashboard.py
+
+      - name: Apply concession inventory frontend
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
+        run: python scripts/patch_concession_inventory_dashboard.py
 
       # Upload the exact workspace used above. These steps use always() so a stale
       # status is still published when ingestion failed; the job is marked failed

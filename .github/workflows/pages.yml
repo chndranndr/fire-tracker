@@ -31,6 +31,8 @@ jobs:
         run: python scripts/patch_land_holdings_dashboard.py
       - name: Apply Indonesia region-aware frontend
         run: python scripts/patch_region_dashboard.py
+      - name: Apply concession inventory frontend
+        run: python scripts/patch_concession_inventory_dashboard.py
       - uses: actions/configure-pages@v5
         with:
           enablement: true
