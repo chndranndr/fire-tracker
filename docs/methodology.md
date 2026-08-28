@@ -8,11 +8,11 @@ Versi dashboard: artefak di repositori `fire-tracker` (vanilla HTML + JSON). Ist
 
 ## 1. Tujuan dan ruang lingkup
 
-MERATUS memetakan gelombang karhutla di Kalimantan (Agustus 2026 dan konteks Jan–Jul 2026) dengan tiga pertanyaan navigasi:
+MERATUS adalah dashboard geospasial ringan untuk memantau hotspot karhutla **seluruh Indonesia**, dengan tiga lapisan yang harus dibedakan:
 
-1. Di mana deteksi termal satelit (hotspot) muncul?
-2. Konsesi mana yang dilaporkan organisasi masyarakat sipil memiliki hotspot tinggi di dalamnya?
-3. Siapa pengendali korporasi yang bisa dikutip dari sumber terbuka, dan apa ikatan politik publik yang terkait?
+1. **Deteksi FIRMS nasional** — hotspot satelit di 7 logical region, dimuat per region × tanggal.
+2. **Inventaris konsesi generik nasional** — katalog polygon izin/konsesi publik per region/sektor (BIG, GFW, dll.).
+3. **Dossier investigatif Kalimantan** — 12 konsesi kurasi dengan klaim WALHI, kontrol korporasi, dan ikatan politik terdokumentasi.
 
 Dashboard **bukan** sistem atribusi pidana, bukan sistem verifikasi lapangan, dan bukan join GIS resmi FIRMS × poligon HGU/IUP.
 
@@ -24,8 +24,8 @@ Setiap klaim di UI harus tetap berada di lapisannya. Lihat [`adr/001-evidence-la
 
 | Lapisan | Artefak data | Apa artinya | Apa yang *bukan* |
 |--------|--------------|-------------|------------------|
-| **Detection** | `data/firms.json` (atau fallback SIPONGI) | Anomali suhu satelit / ringkasan hotspot resmi | Kebakaran terverifikasi lapangan; pelaku |
-| **ConcessionClaim** | `data/dossiers.json` → `walhiHotspots`, `walhiSummary` | Klaim overlay WALHI (agregat periode Jan–Jul 2026) | Join live titik FIRMS 7 hari ke poligon konsesi |
+| **Detection** | `data/hotspots/<region>/<date>.json`, `data/hotspots/manifest.json` | Anomali suhu satelit / ringkasan hotspot per region | Kebakaran terverifikasi lapangan; pelaku |
+| **ConcessionClaim** | `data/dossiers/kalimantan.json` → `walhiHotspots`, `walhiSummary` | Klaim overlay WALHI (agregat periode Jan–Jul 2026, Kalimantan) | Join live titik FIRMS ke poligon konsesi |
 | **Control** | `dossiers[].control`, `uboStatus` | Grup/UBO dari sumber publik bernama | Spekulasi pemilik tanpa kutipan |
 | **PoliticalTie** | `dossiers[].politicalTies` | Jabatan partai, kampanye, kekerabatan, kabinet | “Parpol membakar hutan” |
 
@@ -33,89 +33,56 @@ Tepi graf di UI berlabel `KLAIM_OVERLAY` / `KONTROL` / `IKATAN` agar relasi tida
 
 ---
 
-## 3. Lapisan Detection — NASA FIRMS
+## 3. Lapisan Detection — NASA FIRMS (nasional)
 
 ### 3.1 Sumber primer
 
-- **Produk target pipeline:** NASA FIRMS VIIRS near-real-time untuk **S-NPP, NOAA-20, dan NOAA-21**.
-- **Endpoint pipeline:** FIRMS Area API `https://firms.modaps.eosdis.nasa.gov/api/area/` dengan `MAP_KEY` pada secret GitHub Actions.
-- **Snapshot yang masih ada di repository:** Suomi-NPP VIIRS C2 SouthEast Asia 7-day. Snapshot tersebut tetap dapat dimuat sebagai known-good fallback sampai workflow NRT pertama berhasil.
-- **Mengapa bukan Google Maps Embed:** lapisan api di peta Google umumnya bertumpu pada deteksi FIRMS/sejenis; Embed membutuhkan API key dan tidak cocok untuk alur OSINT/self-host. MERATUS memakai sumber FIRMS langsung.
+- **Produk:** NASA FIRMS VIIRS near-real-time untuk **S-NPP, NOAA-20, dan NOAA-21**.
+- **Endpoint:** FIRMS Area API `https://firms.modaps.eosdis.nasa.gov/api/area/` dengan `MAP_KEY` pada secret GitHub Actions.
+- **Skrip:** `scripts/ingest_firms.py`.
+- **Legacy/bootstrap:** `data/firms.json` dan `data/firms-status.json` tetap ada sebagai subset Kalimantan sementara transisi; **bukan** kontrak runtime produksi utama.
 
-### 3.2 Pipeline pengumpulan (snapshot yang di-commit)
+### 3.2 Pipeline pengumpulan (produksi)
 
-1. Ambil lima hari terakhir untuk setiap sumber VIIRS NRT.
-2. Parse baris deteksi (latitude, longitude, bright_ti4/ti5, FRP, tanggal, waktu, satelit, confidence, day/night, dan atribut sensor lain yang tersedia).
-3. **Filter spasial Kalimantan Indonesia:** bbox kasar + point-in-polygon terhadap `data/kalimantan-indonesia.geojson`, yang bersumber dari Natural Earth admin-0 countries 1:110m. Rectangle Sarawak/Sabah tidak digunakan karena mencakup wilayah Indonesia di perbatasan.
-4. Normalisasi platform dan confidence ke label UI: `low` / `nominal` / `high`.
-5. Tambahkan `observationId` deterministik dari platform + tanggal/waktu akuisisi + koordinat, lalu hapus hanya record exact-duplicate.
-6. Validasi schema, koordinat, timestamp, platform, non-empty result, recency per platform, serta penurunan count aggregate dan per platform yang mencurigakan.
-7. Tulis `data/firms.json` dan `data/firms-status.json` hanya jika dataset baru lolos validasi:
+1. Ambil observasi VIIRS NRT untuk bbox Indonesia dari ketiga platform.
+2. Parse deteksi (lat/lon, brightness, FRP, tanggal, waktu, satelit, confidence, day/night).
+3. **Filter spasial Indonesia:** point-in-polygon terhadap `data/kalimantan-indonesia.geojson` (Natural Earth admin-0, bukan bbox Kalimantan saja).
+4. Klasifikasikan setiap titik ke salah satu dari 7 logical region: `sumatra`, `jawa`, `kalimantan`, `sulawesi`, `bali-nusra`, `maluku`, `papua` (definisi di `data/regions.json`).
+5. Deduplikasi deterministik (`observationId`) dan validasi schema, koordinat, timestamp, platform, recency, serta penurunan count yang mencurigakan.
+6. Tulis shard runtime:
+   - `data/hotspots/manifest.json` — index nasional per region/tanggal
+   - `data/hotspots/status.json` — status pipeline (`healthy` / `stale`, timestamp sync)
+   - `data/hotspots/<region>/<YYYY-MM-DD>.json` — titik untuk satu region × satu tanggal
+7. Jika validasi gagal: pertahankan shard last-known-good; status ditandai `stale`.
 
-```json
-{
-  "meta": {
-    "source": "NASA FIRMS NRT VIIRS",
-    "platforms": ["S-NPP", "NOAA-20", "NOAA-21"],
-    "url": "…",
-    "fetched": "YYYY-MM-DD",
-    "lastSuccessfulSync": "YYYY-MM-DDTHH:MM:SSZ",
-    "newestDetectionUtc": "YYYY-MM-DDTHH:MM:SSZ",
-    "sourceCounts": {"S-NPP": 1234, "NOAA-20": 1234, "NOAA-21": 1234},
-    "sourceObservations": {"S-NPP": {"newestDetectionUtc": "YYYY-MM-DDTHH:MM:SSZ"}},
-    "pipelineVersion": "3",
-    "pipelineStatus": "healthy",
-    "count": 20500
-  },
-  "points": [
-    {
-      "lat": -2.19013,
-      "lon": 112.68287,
-      "b4": 344.34,
-      "b5": 293.47,
-      "frp": 4.04,
-      "date": "2026-08-14",
-      "time": "0642",
-      "sat": "N",
-      "conf": "nominal",
-      "dn": "D"
-    }
-  ]
-}
-```
+### 3.3 Model publikasi (artifact-only)
 
-### 3.3 Snapshot yang dipakai di dashboard awal
-
-| Metrik | Nilai (meta repositori) |
-|--------|-------------------------|
-| Tanggal fetch | 2026-08-21 |
-| Jumlah titik setelah filter | 20.500 |
-| Confidence | high 905 · nominal 18.915 · low 680 |
-| Rentang tanggal di file | ~2026-08-14 … 2026-08-20 |
-
-Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agustus (produk & ambang berbeda — lihat §4).
+- Workflow `Refresh FIRMS NRT` berjalan setiap jam di branch `main`.
+- Shard runtime segar dihasilkan di workspace CI, divalidasi, lalu dikemas ke artefak GitHub Pages.
+- **Hourly FIRMS runtime tidak di-commit ke source history** (lihat [`adr/006-runtime-data-publication.md`](adr/006-runtime-data-publication.md)).
+- Repo source tetap menyimpan snapshot/bootstrap untuk reproducibility lokal dan regression tests.
 
 ### 3.4 Cara dibaca di UI
 
+- Tampilan Indonesia memuat ringkasan dari `data/hotspots/manifest.json`.
+- Browser mengunduh shard `region × date` hanya saat user memilih region dan tanggal.
 - Titik digabung cluster (Leaflet.markercluster) karena volume besar.
-- Scrubber waktu memfilter per `date`.
-- Filter `Keyakinan FIRMS` memotong `conf`.
-- Klik titik → inspector Detection saja; asosiasi spasial memakai urutan **point-in-polygon boundary**, jarak ke **tepi polygon terdekat**, lalu **centroid fallback** hanya untuk dossier tanpa boundary. Kedekatan atau overlap tetap **bukan atribusi kebakaran**.
+- Scrubber waktu memfilter per `date`; filter confidence memotong `conf`.
+- Klik titik → inspector Detection saja; kedekatan spasial ke boundary/centroid **bukan** atribusi kebakaran.
 
 ### 3.5 Batasan FIRMS
 
-- Hotspot = kandidat termal; bisa jadi api kecil, industri, atau false positive.
+- Hotspot = kandidat termal; bisa api kecil, industri, atau false positive.
 - Resolusi VIIRS (~375 m) tidak mencerminkan batas legal konsesi.
-- FIRMS mendistribusikan data near-real-time, bukan continuous live imagery. Dashboard menampilkan snapshot terakhir yang berhasil di-ingest.
+- Tiga platform polar-orbiting ≠ observasi kontinu setiap menit.
 - Tidak ada koreksi asap/awan di sisi MERATUS.
-- S-NPP, NOAA-20, dan NOAA-21 tetap satelit polar-orbiting; tiga platform tidak berarti observasi kontinu setiap menit.
 
 ### 3.6 Cara memperbarui
 
 1. Set repository secret `FIRMS_MAP_KEY`.
-2. Jalankan workflow `Refresh FIRMS NRT` secara manual atau tunggu cron hourly.
-3. Workflow melakukan safe publish ke `data/firms.json`, menulis archive harian, memperbarui metadata freshness, lalu men-deploy Pages dari workspace yang sama.
-4. Jika fetch atau validasi gagal, workflow menulis `pipelineStatus: stale` ke `data/firms-status.json` dan mempertahankan dataset terakhir yang valid.
+2. Jalankan workflow `Refresh FIRMS NRT` (schedule hourly atau manual).
+3. Workflow ingest → validate → `scripts/build_dashboard.py` → `scripts/validate_build.py` → upload Pages artifact.
+4. Jika ingest gagal, shard last-known-good tetap dipublikasikan dengan status `stale`.
 
 ---
 
@@ -123,12 +90,12 @@ Angka ini **bukan** sama dengan 750 hotspot high-confidence SIPONGI 17–19 Agus
 
 ### 4.1 Fungsi di produk
 
-- **Narasi gelombang Agustus 2026** di panel Temuan / stempel (bukan pengganti peta titik kecuali fallback).
-- **Fallback UI:** jika `data/firms.json` gagal dimuat atau `points` kosong, UI mensintesis titik sebaran kasar dari `sipongiFallback.daily` (bukan lokasi satelit sebenarnya).
+- **Narasi gelombang Agustus 2026** di panel Temuan (konteks Kalimantan, bukan pengganti shard FIRMS nasional).
+- **Fallback kontekstual:** blok `sipongiFallback` di dossier Kalimantan menyediakan ringkasan high-confidence SIPONGI bila lapisan FIRMS regional tidak tersedia. Bukan lokasi satelit sebenarnya.
 
 ### 4.2 Sumber yang dikutip
 
-Ringkasan di `dossiers.json` → `sipongiFallback` merangkum pemberitaan & rilis berbasis SIPONGI (NASA-MODIS/Terra-Aqua *high confidence* menurut Kemenhut), periode **17–19 Agustus 2026**:
+Ringkasan di `data/dossiers/kalimantan.json` → `sipongiFallback` merangkum pemberitaan & rilis berbasis SIPONGI (NASA-MODIS/Terra-Aqua *high confidence* menurut Kemenhut), periode **17–19 Agustus 2026**:
 
 | Agregat | Angka |
 |---------|------:|
@@ -208,7 +175,18 @@ Caveat di UI: centroid tetap kasar untuk navigasi; jika suatu dossier belum memi
 
 - Tidak ada unduhan shapefile HGU/IUP resmi ke dalam repo pada rilis awal.
 - Tidak ada intersect FIRMS 7 hari × poligon konsesi.
-- Angka `walhiHotspots` **tidak** dihitung ulang dari `firms.json`; angka itu milik klaim WALHI Jan–Jul.
+- Angka `walhiHotspots` **tidak** dihitung ulang dari shard FIRMS; angka itu milik klaim WALHI Jan–Jul.
+
+### 5.5 Inventaris konsesi generik (nasional)
+
+Selain dossier investigatif Kalimantan, MERATUS memuat **inventaris konsesi generik** untuk seluruh Indonesia:
+
+- **Skrip:** `scripts/ingest_concessions.py`
+- **Output:** `data/concessions/<region>/inventory/*.geojson` + manifest/status per region
+- **Sumber:** layer BIG (mining, forestry, oil palm resmi) dan GFW/WRI (oil palm, forestry) yang tersedia
+- **Fungsi UI:** toggle “Inventaris semua konsesi” — katalog spasial luas, tanpa graf politik atau klaim WALHI
+
+Inventaris generik **bukan** ConcessionClaim WALHI dan **bukan** boundary dossier investigatif.
 
 ---
 
@@ -295,30 +273,35 @@ Jangan mengisi poligon “dummy” yang tampak resmi.
 
 ## 8. Arsitektur penyajian data
 
-Lihat [`adr/003-single-html.md`](adr/003-single-html.md).
+Lihat [`adr/005-build-time-frontend-composition.md`](adr/005-build-time-frontend-composition.md) dan [`adr/004-region-date-sharding.md`](adr/004-region-date-sharding.md).
 
-| File | Peran |
-|------|--------|
-| `index.html` | UI Palantir-style; `fetch` JSON |
-| `data/firms.json` | Detection |
-| `data/dossiers.json` | WALHI summary, SIPONGI fallback, 12 dossier |
-| `data/boundaries.geojson` | Region konsesi (opsional) |
-| `data/README.txt` | Skema singkat untuk editor data |
+| File / path | Peran |
+|-------------|--------|
+| `index.html` | Template UI; dipatch saat build |
+| `data/hotspots/manifest.json` | Index nasional Detection |
+| `data/hotspots/status.json` | Status pipeline FIRMS |
+| `data/hotspots/<region>/<date>.json` | Shard Detection per region × tanggal |
+| `data/concessions/<region>/inventory/` | Inventaris konsesi generik nasional |
+| `data/dossiers/manifest.json` | Availability dossier per region |
+| `data/dossiers/kalimantan.json` | WALHI summary, SIPONGI fallback, 12 dossier investigatif |
+| `data/concessions/kalimantan/boundaries.geojson` | Boundary dossier Kalimantan |
+| `data/firms.json` | Legacy/bootstrap Kalimantan (bukan runtime utama) |
 
-Alur runtime:
+Alur produksi:
 
-1. Browser memuat `index.html` lewat HTTP (lokal atau GitHub Pages).
-2. `fetch("data/firms.json")`, `fetch("data/dossiers.json")`, `fetch("data/boundaries.geojson")` dengan `cache: "no-store"`.
-3. Jika FIRMS gagal → sintesis fallback SIPONGI.
-4. Jika boundaries kosong → hanya centroid.
+1. `scripts/ingest_firms.py` menghasilkan shard runtime di workspace CI.
+2. `scripts/build_dashboard.py` menerapkan patch frontend berurutan.
+3. `scripts/validate_build.py` menjadi regression gate PR dan deploy.
+4. Artefak GitHub Pages memuat shard segar + build dashboard.
+5. Browser memuat manifest nasional, lalu lazy-load shard/dossier/inventaris per region.
 
-Tidak ada backend, database, atau API key Google pada rilis ini.
+Tidak ada backend, database, atau API key Google.
 
 ---
 
 ## 9. Kontrol kualitas dan anti-klaim berlebih
 
-Checklist sebelum menambah klaim baru ke `dossiers.json`:
+Checklist sebelum menambah klaim baru ke `data/dossiers/kalimantan.json`:
 
 1. Ada **URL sumber bernama** di `sources` atau `politicalTies[].sources`?
 2. Apakah klaim masuk lapis yang benar (Detection vs ConcessionClaim vs Control vs PoliticalTie)?
@@ -335,7 +318,7 @@ Checklist sebelum menambah klaim baru ke `dossiers.json`:
 2. **Kualitas dan vintage poligon tidak seragam:** delapan Feature berasal dari BIG, sementara lima Feature GFW/WRI berasal dari dataset lama yang diketahui incomplete; coverage ini tidak membuktikan status HGU/IUP aktif pada 2026 dan tidak dipakai untuk densitas hotspot baru.
 3. **Dossier curated 12 PT** → bukan sensus seluruh pemegang izin Kalimantan.
 4. **OSINT politik selektif** → banyak tautan elite tidak masuk karena tidak ada sumber yang memenuhi ambang.
-5. **Fallback SIPONGI** menyebar titik secara sintetis di sekitar pusat provinsi — hanya untuk menjaga kanvas hidup, bukan lokasi akurat.
+5. **Fallback SIPONGI** di dossier Kalimantan adalah konteks gelombang, bukan shard FIRMS nasional.
 6. **Lisensi data pihak ketiga** (FIRMS, liputan media, kelak GFW/HGU) harus dihormati saat redistribusi massal.
 
 ---
@@ -343,20 +326,29 @@ Checklist sebelum menambah klaim baru ke `dossiers.json`:
 ## 11. Cara mereplikasi pengumpulan (ringkas)
 
 ```text
-A. FIRMS
-   unduh CSV SEA 7d → filter bbox Kalimantan ID → buang MY → tulis data/firms.json
+A. FIRMS nasional
+   FIRMS_MAP_KEY → scripts/ingest_firms.py
+   → filter Indonesia → 7 logical regions
+   → tulis data/hotspots/manifest.json + status.json + <region>/<date>.json
+   → publish via GitHub Pages artifact (bukan commit hourly ke main)
 
-B. WALHI dossier
-   baca liputan WALHI Jan–Jul 2026 → ambil 12 nama + angka hotspot → isi dossiers[]
+B. Inventaris konsesi nasional
+   scripts/ingest_concessions.py
+   → fetch BIG/GFW sources → shard per region
+   → tulis data/concessions/<region>/inventory/
 
-C. Control / politik
-   IDX / annual report / investigasi bernama → isi control + politicalTies atau UNKNOWN
+C. WALHI dossier (Kalimantan)
+   baca liputan WALHI Jan–Jul 2026 → isi data/dossiers/kalimantan.json
 
-D. SIPONGI konteks
-   rilis Kemenhut + liputan 17–19 Agu → isi sipongiFallback
+D. Control / politik
+   sumber bernama (IDX, KPU, media, investigasi) → control + politicalTies atau UNKNOWN
+   setiap edge bukti butuh kutipan independen
 
-E. Boundaries
-   pertahankan Feature yang provenance-nya valid; cari sumber terbuka baru → properties.dossierId → data/boundaries.geojson
+E. SIPONGI konteks
+   rilis Kemenhut + liputan 17–19 Agu → isi sipongiFallback di dossier Kalimantan
+
+F. Build & deploy
+   scripts/build_dashboard.py → scripts/validate_build.py → GitHub Pages
 ```
 
 ---
@@ -366,7 +358,10 @@ E. Boundaries
 - [`glossary.md`](glossary.md) — istilah domain
 - [`adr/001-evidence-layers.md`](adr/001-evidence-layers.md) — empat lapisan
 - [`adr/002-campaign-framing.md`](adr/002-campaign-framing.md) — lensa politik
-- [`adr/003-single-html.md`](adr/003-single-html.md) — distribusi JSON
+- [`adr/004-region-date-sharding.md`](adr/004-region-date-sharding.md) — shard hotspot nasional
+- [`adr/005-build-time-frontend-composition.md`](adr/005-build-time-frontend-composition.md) — build dashboard
+- [`adr/006-runtime-data-publication.md`](adr/006-runtime-data-publication.md) — publikasi artifact-only
+- [`adr/007-dossier-inventory-separation.md`](adr/007-dossier-inventory-separation.md) — dossier vs inventaris
 - [`../data/README.txt`](../data/README.txt) — skema file data
 
 ---

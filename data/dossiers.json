@@ -96,11 +96,11 @@
           "personId": "agus-lasmono",
           "party": "Golkar",
           "type": "kekerabatan",
-          "detail": "Keluarga Sudwikatmono; kakak Agus (Tri Hanurita) dikenal sebagai kader Golkar (pemberitaan publik).",
+          "detail": "Keluarga Sudwikatmono: Tri Hanurita (kakak Agus) terdaftar sebagai anggota DPR RI dari Partai Golkar periode 2009–2014 (KPU).",
           "confidence": "sedang",
           "sources": [
-            "src-kideco-indika",
-            "src-sudwi-golkar"
+            "src-sudwi-family",
+            "src-hanurita-golkar-kpu"
           ]
         },
         {
@@ -135,9 +135,14 @@
           "url": "https://www.indikaenergy.co.id/our-business/mining-services/kideco"
         },
         {
-          "id": "src-sudwi-golkar",
-          "label": "Suara.com — Tri Hanurita Sudwikatmono, kader Golkar / mantan DPR",
+          "id": "src-sudwi-family",
+          "label": "Suara.com — profil Tri Hanurita, anak Sudwikatmono & kakak Agus Lasmono",
           "url": "https://www.suara.com/tantrum/2023/09/30/084452/jarang-terekspose-ini-profil-tri-hanurita-mantan-istri-irwan-mussry-yang-ternyata-anak-konglomerat"
+        },
+        {
+          "id": "src-hanurita-golkar-kpu",
+          "label": "KPU — Daftar Anggota DPR RI terpilih 2009 (Tri Hanurita, Partai Golkar)",
+          "url": "https://www.kpu.go.id/dmdocuments/DAFTAR_ANGGOTA_DPR_2009.pdf"
         },
         {
           "id": "src-arsjad-ganjar",

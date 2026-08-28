@@ -35,7 +35,7 @@ def build_patched_index(source: str) -> str:
 
     text = replace_once(
         text,
-        "<title>MERATUS — Intel Karhutla Kalimantan</title>",
+        "<title>MERATUS — Intel Karhutla Indonesia</title>",
         "<title>MERATUS — Intel Karhutla Indonesia</title>",
         "document title",
     )

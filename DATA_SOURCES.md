@@ -20,11 +20,11 @@ This document describes third-party datasets and citations used by MERATUS. It d
 | --- | --- |
 | Source | Badan Informasi Geospasial (BIG) — Satu Peta / open concession layers |
 | URL | https://tanahair.indonesia.go.id/ |
-| Role in MERATUS | Regional concession boundary polygons where available |
-| Retrieval | Curated GeoJSON in `data/concessions/<region>/` |
-| Quality label | Official administrative geometry; coverage varies by region |
+| Role in MERATUS | Nationwide generic concession inventory polygons (mining, forestry, oil palm where available) |
+| Retrieval | `scripts/ingest_concessions.py` fetches BIG/GFW sources, normalizes features, and writes region-sharded GeoJSON under `data/concessions/<region>/inventory/` |
+| Quality label | Official administrative geometry where sourced from BIG; GFW-derived layers tagged separately |
 | Licensing / terms | Indonesian government open-data terms; verify before republication |
-| Caveats | Geometry ≠ operational status; investigative dossier boundaries are separate |
+| Caveats | Inventory catalog ≠ investigative dossier boundaries; geometry ≠ operational status |
 
 ## Global Forest Watch (GFW)
 

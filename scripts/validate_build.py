@@ -96,6 +96,9 @@ def main() -> None:
     )
     run(["node", str(ROOT / "tests/test_spatial_proximity.js")], "spatial proximity")
 
+    validate_json_contracts()
+    validate_region_geometry()
+
     run(
         [sys.executable, str(ROOT / "scripts/bootstrap_hotspot_shards.py"), "--check", "--force"],
         "hotspot shard contract",
