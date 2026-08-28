@@ -131,18 +131,18 @@
         },
         {
           "id": "src-kideco-indika",
-          "label": "Indika Energy — profil Kideco",
-          "url": "https://www.indikaenergy.co.id/"
+          "label": "Indika Energy — operasi Kideco Jaya Agung",
+          "url": "https://www.indikaenergy.co.id/our-business/mining-services/kideco"
         },
         {
           "id": "src-sudwi-golkar",
-          "label": "Pemberitaan keluarga Sudwikatmono / Golkar (publik)",
-          "url": "https://www.indikaenergy.co.id/"
+          "label": "Suara.com — Tri Hanurita Sudwikatmono, kader Golkar / mantan DPR",
+          "url": "https://www.suara.com/tantrum/2023/09/30/084452/jarang-terekspose-ini-profil-tri-hanurita-mantan-istri-irwan-mussry-yang-ternyata-anak-konglomerat"
         },
         {
           "id": "src-arsjad-ganjar",
-          "label": "Pemberitaan Arsjad ketua Timnas Ganjar 2024",
-          "url": "https://www.antaranews.com/"
+          "label": "ANTARA — Arsjad Rasjid ditunjuk Ketua TPN Ganjar 2024",
+          "url": "https://kalteng.antaranews.com/berita/653973/megawati-tunjuk-arsjad-rasjid-jadi-ketua-tim-pemenangan-ganjar"
         }
       ]
     },
@@ -173,7 +173,7 @@
           "personId": "aburizal-bakrie",
           "party": "Golkar",
           "type": "jabatan_partai",
-          "detail": "Aburizal Bakrie: Ketua Dewan Kehormatan Partai Golkar periode 2024–2029 (pernyataan/pemberitaan partai).",
+          "detail": "Aburizal Bakrie: tokoh Golkar / mantan Ketua Umum; peran partai terkait tokoh, bukan atribusi api.",
           "confidence": "tinggi",
           "sources": [
             "src-bakrie-golkar"
@@ -197,13 +197,13 @@
         },
         {
           "id": "src-bumi",
-          "label": "Bumi Resources — KPC",
-          "url": "https://www.bumiresources.com/"
+          "label": "Bumi Resources — Kaltim Prima Coal",
+          "url": "https://www.bumiresources.com/operations/kaltim-prima-coal"
         },
         {
           "id": "src-bakrie-golkar",
-          "label": "Golkar — Dewan Kehormatan / Aburizal Bakrie",
-          "url": "https://www.golkar.or.id/"
+          "label": "Golkar.or.id — Aburizal Bakrie (Ketua Dewan Pembina, arsip resmi partai)",
+          "url": "https://www.golkar.or.id/content/tegas-arb-soal-kemenangan-dan-mengembalikan-kejayaan-golkar"
         }
       ]
     },
@@ -248,8 +248,8 @@
         },
         {
           "id": "src-tata-bssr",
-          "label": "Tata Power — stake BSSR/AGM ~26%",
-          "url": "https://www.tatapower.com/"
+          "label": "Tata Power — investor presentation (BSSR/AGM ~26%)",
+          "url": "https://www.tatapower.com/company-financials/investor-presentation/2024/Investor--Presentation---December-2024.pdf"
         },
         {
           "id": "src-tambang-agm",
@@ -355,13 +355,13 @@
         },
         {
           "id": "src-adaro",
-          "label": "Adaro Energy — situs korporat",
-          "url": "https://www.adaro.com/"
+          "label": "Adaro Energy — ringkasan perusahaan",
+          "url": "https://www.adaro.com/en/about-us/company-overview"
         },
         {
           "id": "src-erick",
-          "label": "Profil publik Menteri BUMN Erick Thohir",
-          "url": "https://www.indonesia.go.id/"
+          "label": "Setkab — profil Menteri BUMN Erick Thohir",
+          "url": "https://setkab.go.id/menteri-bumn"
         }
       ]
     },

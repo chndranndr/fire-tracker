@@ -14,7 +14,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -34,84 +34,19 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Determine publish mode
         id: publish-mode
         env:
           SHOULD_PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish == true) }}
         run: echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
 
-      # Pull requests must be deterministic. Do not make mergeability depend on
-      # NASA/network availability; live FIRMS checks remain schedule/manual-only.
       - name: Validate FIRMS pipeline offline
         if: github.event_name == 'pull_request'
-        run: |
-          python -m py_compile \
-            scripts/ingest_firms.py \
-            scripts/bootstrap_hotspot_shards.py \
-            scripts/patch_land_holdings_dashboard.py \
-            scripts/patch_region_dashboard.py \
-            scripts/patch_concession_inventory_dashboard.py
-          python -m unittest discover -s tests -p 'test_*.py' -v
-          node tests/test_spatial_proximity.js
-          python scripts/bootstrap_hotspot_shards.py --check --force
-          python scripts/patch_land_holdings_dashboard.py
-          python scripts/patch_region_dashboard.py
-          python scripts/patch_concession_inventory_dashboard.py
-          python - <<'PY'
-          import importlib.util
-          import json
-          import re
-          from pathlib import Path
-
-          for path in (
-              Path("data/firms.json"),
-              Path("data/dossiers.json"),
-              Path("data/boundaries.geojson"),
-              Path("data/kalimantan-indonesia.geojson"),
-              Path("data/regions.json"),
-              Path("data/dossiers/manifest.json"),
-              Path("data/concessions/manifest.json"),
-              Path("data/concessions/kalimantan/inventory/manifest.json"),
-              Path("data/affiliated-land-holdings.json"),
-              Path("data/affiliated-land-display-centers.json"),
-          ):
-              with path.open(encoding="utf-8") as handle:
-                  json.load(handle)
-              print(f"validated {path}")
-
-          spec = importlib.util.spec_from_file_location("ingest_firms", Path("scripts/ingest_firms.py"))
-          ingest_firms = importlib.util.module_from_spec(spec)
-          assert spec.loader is not None
-          spec.loader.exec_module(ingest_firms)
-          boundary, _ = ingest_firms.load_boundary_geometry(Path("data/kalimantan-indonesia.geojson"))
-          region_geometries = ingest_firms.build_region_geometries(boundary)
-          assert tuple(region_geometries) == ingest_firms.REGION_ORDER
-          assert all(region_geometries[region]["coordinates"] for region in ingest_firms.REGION_ORDER)
-          print("validated Indonesia boundary split into 7 logical regions")
-
-          html = Path("index.html").read_text(encoding="utf-8")
-          assert 'boundary.qualities.indexOf(state.boundary)' in html
-          assert 'boundaryStatus(d).key !== state.boundary' not in html
-          assert 'pointInBoundaryGeometry' in html
-          assert 'boundaryGeometryDistanceKm' in html
-          assert 'jarak centroid kasar' not in html
-          assert 'id="f-region"' in html
-          assert 'data/hotspots/manifest.json' in html
-          assert 'function selectRegion(regionId, preferredDate)' in html
-          assert 'function refreshNationalSummary()' in html
-          assert 'chunkedLoading: true' in html
-          assert 'loadJson("data/firms.json")' not in html
-          assert 'loadJson("data/dossiers.json")' not in html
-          assert 'loadJson("data/boundaries.geojson")' not in html
-          assert 'id="tog-inventory"' in html
-          assert 'function refreshConcessionInventoryLayer()' in html
-          assert 'NO FIRE ATTRIBUTION' in html
-          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, flags=re.S | re.I)
-          inline = "\n".join(script for script in scripts if script.strip())
-          Path("/tmp/meratus-inline.js").write_text(inline, encoding="utf-8")
-          print("validated region/date lazy loading and concession inventory integration")
-          PY
-          node --check /tmp/meratus-inline.js
+        run: python scripts/validate_build.py
 
       - name: Fetch and validate FIRMS
         id: ingest
@@ -125,50 +60,14 @@ jobs:
           echo "result=$result" >> "$GITHUB_OUTPUT"
           set -e
 
-      - name: Commit dataset or pipeline status
-        if: github.event_name != 'pull_request'
-        env:
-          SHOULD_PUBLISH: ${{ steps.publish-mode.outputs.should_publish }}
-        run: |
-          if [ "$SHOULD_PUBLISH" != "true" ]; then
-            echo "Validation-only live run: no commit, push, or production Pages deploy."
-            git status --short
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/firms.json data/firms-status.json
-          if [ -d data/hotspots ]; then git add data/hotspots; fi
-          if git diff --cached --quiet; then
-            echo "No FIRMS or status changes to publish."
-          else
-            git commit -m "chore(data): refresh FIRMS NRT dataset"
-            git push origin HEAD:main
-          fi
-
-      # If this is the first deploy before a successful national refresh, build a
-      # temporary Kalimantan-only shard manifest from the legacy dataset.
-      - name: Ensure hotspot shard contract exists
+      - name: Build production dashboard
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
-        run: python scripts/bootstrap_hotspot_shards.py
+        run: python scripts/build_dashboard.py
 
-      # Display-only overlays are injected into the Pages workspace. Apply the
-      # land-holding patch first, then the regional loader, then broad concession inventory.
-      - name: Apply display-only land holding overlay
+      - name: Validate build regression gate
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
-        run: python scripts/patch_land_holdings_dashboard.py
+        run: python scripts/validate_build.py
 
-      - name: Apply Indonesia region-aware frontend
-        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
-        run: python scripts/patch_region_dashboard.py
-
-      - name: Apply concession inventory frontend
-        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
-        run: python scripts/patch_concession_inventory_dashboard.py
-
-      # Upload the exact workspace used above. These steps use always() so a stale
-      # status is still published when ingestion failed; the job is marked failed
-      # only after the Pages artifact exists.
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         uses: actions/configure-pages@v5

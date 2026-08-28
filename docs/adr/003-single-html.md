@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 005 — Build-time frontend composition](005-build-time-frontend-composition.md)
 
 ## Konteks
 

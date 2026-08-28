@@ -25,14 +25,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Ensure hotspot shard contract exists
-        run: python scripts/bootstrap_hotspot_shards.py
-      - name: Apply display-only land holding overlay
-        run: python scripts/patch_land_holdings_dashboard.py
-      - name: Apply Indonesia region-aware frontend
-        run: python scripts/patch_region_dashboard.py
-      - name: Apply concession inventory frontend
-        run: python scripts/patch_concession_inventory_dashboard.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build production dashboard
+        run: python scripts/build_dashboard.py
+      - name: Validate build regression gate
+        run: python scripts/validate_build.py
       - uses: actions/configure-pages@v5
         with:
           enablement: true

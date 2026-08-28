@@ -12,8 +12,9 @@ Jaga agar data di `data/` akurat, bersumber, dan tidak menggabungkan empat lapis
 2. [`docs/glossary.md`](docs/glossary.md) — istilah
 3. [`docs/adr/001-evidence-layers.md`](docs/adr/001-evidence-layers.md)
 4. [`docs/adr/002-campaign-framing.md`](docs/adr/002-campaign-framing.md)
-5. [`docs/adr/003-single-html.md`](docs/adr/003-single-html.md)
-6. [`data/README.txt`](data/README.txt) — skema file
+5. [`docs/adr/003-single-html.md`](docs/adr/003-single-html.md) (superseded by ADR 005)
+6. [`docs/adr/005-build-time-frontend-composition.md`](docs/adr/005-build-time-frontend-composition.md)
+7. [`data/README.txt`](data/README.txt) — skema file
 
 ## Artefak yang boleh kamu edit
 
@@ -22,7 +23,7 @@ Jaga agar data di `data/` akurat, bersumber, dan tidak menggabungkan empat lapis
 | `data/firms.json` | Refresh deteksi FIRMS |
 | `data/firms-status.json` | Status ingest; jangan hapus saat stale |
 | `data/kalimantan-indonesia.geojson` | Polygon filter administratif Indonesia untuk ingestion; provenance wajib dipertahankan |
-| `data/dossiers.json` | Dossier, WALHI summary, SIPONGI fallback |
+| `data/dossiers.json` | Legacy dossier copy; prefer `data/dossiers/kalimantan.json` |
 | `data/boundaries.geojson` | Poligon konsesi (hanya geometri berlisensi/sumber jelas) |
 | `docs/methodology.md` | Jika prosedur pengumpulan berubah |
 | `README.md` | Hanya jika alur pakai berubah material |

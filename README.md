@@ -1,79 +1,117 @@
 # MERATUS
 
-Intel dashboard (vanilla HTML/CSS/JS) untuk hotspot karhutla Indonesia, dengan layer dossier/konsesi dan jaringan afiliasi publik yang dimuat per wilayah ketika tersedia.
+[![Deploy GitHub Pages](https://github.com/chndranndr/fire-tracker/actions/workflows/pages.yml/badge.svg)](https://github.com/chndranndr/fire-tracker/actions/workflows/pages.yml)
+[![Refresh FIRMS NRT](https://github.com/chndranndr/fire-tracker/actions/workflows/firms-nrt.yml/badge.svg)](https://github.com/chndranndr/fire-tracker/actions/workflows/firms-nrt.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/demo-GitHub%20Pages-090909?style=flat&logo=github)](https://chndranndr.github.io/fire-tracker/)
 
-## Jalankan lokal
+![MERATUS national overview](docs/assets/screenshot-national.png)
 
-Siapkan kontrak shard dan dashboard hasil patch terlebih dulu:
+**MERATUS** is a lightweight geospatial intelligence dashboard for monitoring wildfire hotspots across Indonesia. It ingests and validates NASA FIRMS observations, shards them by region and date, overlays public concession datasets, and keeps satellite detections, concession claims, corporate control, and political ties as **separate evidence layers**.
 
-```bash
-python scripts/bootstrap_hotspot_shards.py
-python scripts/patch_land_holdings_dashboard.py
-python scripts/patch_region_dashboard.py
+**[Live Demo](https://chndranndr.github.io/fire-tracker/)** · **[Methodology](docs/methodology.md)** · **[Data Sources](DATA_SOURCES.md)**
+
+## Key capabilities
+
+| Capability | Detail |
+| --- | --- |
+| FIRMS ingestion | Hourly pipeline for VIIRS S-NPP, NOAA-20, NOAA-21 |
+| National coverage | 7 logical Indonesia regions with region × date JSON shards |
+| Spatial filtering | Point-in-polygon against Indonesia boundary geometry |
+| Concession inventory | Nationwide generic concession GeoJSON per region/sector |
+| Investigative dossiers | Kalimantan dossier layer with curated OSINT citations |
+| Resilience | Last-known-good fallback when ingest fails or data goes stale |
+| Deployment | Static GitHub Pages build with shared regression gate |
+| Tests | Python ingest/build tests plus Node spatial proximity checks |
+
+**Runtime snapshot** (from `data/hotspots/manifest.json`, synced 2026-08-28): **67,478** detections across **7** regions; Kalimantan investigative dossier covers **12** curated concessions.
+
+## Why this exists
+
+Wildfire signals arrive from many systems with different semantics. Near-real-time satellite feeds need validation so a failed fetch does not break a live dashboard. Nationwide point volume must shard and lazy-load instead of shipping one giant JSON file. Concession and ownership data carry different provenance and quality labels. Sensitive OSINT claims need explicit evidence separation so the UI never collapses detection, concession overlay, corporate control, and political affiliation into a single accusation.
+
+MERATUS keeps those concerns explicit in both data model and UI copy.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    FIRMS[NASA FIRMS] --> Ingest[Python ingest + validation]
+    BIG[BIG / public concession sources] --> Concessions[Concession ingest]
+    Ingest --> Shards[Region × date JSON shards]
+    Concessions --> GeoJSON[Regional GeoJSON inventory]
+    Dossiers[Curated dossiers] --> Build
+    Shards --> Build[Static dashboard build]
+    GeoJSON --> Build
+    Build --> Pages[GitHub Pages]
+    Pages --> Browser[Leaflet dashboard]
 ```
 
-Lalu jalankan HTTP server:
+See [docs/architecture.md](docs/architecture.md) and [docs/adr/](docs/adr/) for decision history.
+
+## Evidence model
+
+Four layers stay separate end to end:
+
+1. **Detection** — FIRMS thermal observations (not ground-verified fire).
+2. **ConcessionClaim** — WALHI/media overlay counts for a fixed reporting period.
+3. **Control** — company, group, and person links from named public sources.
+4. **PoliticalTie** — party, campaign, family, or cabinet links on individuals.
+
+> Satellite hotspot ≠ verified wildfire. Hotspot inside a concession polygon ≠ fire attribution. Political tie on a person ≠ company guilt.
+
+## Data pipeline
+
+1. **Ingest** — `scripts/ingest_firms.py` fetches NASA FIRMS, deduplicates, classifies points into logical regions, and writes `data/hotspots/<region>/<date>.json`.
+2. **Validate** — suspicious drops, empty platforms, or stale timestamps keep the last-known-good shard set (`data/hotspots/status.json`).
+3. **Build** — `scripts/build_dashboard.py` bootstraps the shard contract and applies three frontend patches in order.
+4. **Gate** — `scripts/validate_build.py` runs the same regression checks on pull requests and before Pages deploy.
+5. **Publish** — hourly CI uploads a Pages artifact with fresh runtime data. Runtime shards are **not** committed to source history every hour.
+
+Concession inventory GeoJSON lives under `data/concessions/<region>/inventory/`. Kalimantan investigative dossiers live in `data/dossiers/kalimantan.json`.
+
+## Screenshots
+
+| National overview | Kalimantan investigative view |
+| --- | --- |
+| ![National](docs/assets/screenshot-national.png) | ![Kalimantan](docs/assets/screenshot-kalimantan.png) |
+
+| Concession inventory | Dossier inspector |
+| --- | --- |
+| ![Inventory](docs/assets/screenshot-inventory.png) | ![Inspector](docs/assets/screenshot-inspector.png) |
+
+## Local development
 
 ```bash
+python scripts/build_dashboard.py
 python -m http.server 8765
 ```
 
-Buka http://127.0.0.1:8765/index.html.
+Open http://127.0.0.1:8765/index.html.
 
-Catatan: dua patch dashboard mengubah `index.html` di working tree. Untuk mengembalikan source template setelah testing lokal, gunakan Git (`git restore index.html`). Deployment GitHub Pages menjalankan patch yang sama di workspace CI, jadi source template di branch tetap bersih.
+`build_dashboard.py` patches `index.html` in the working tree. Restore the template after local testing with `git restore index.html`.
 
-Untuk file besar, gunakan server threaded:
+Run the full regression gate:
 
 ```bash
-python -c "from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(('127.0.0.1', 8765), SimpleHTTPRequestHandler).serve_forever()"
+python scripts/validate_build.py
 ```
 
-## Data
+## Testing
 
-### Hotspot FIRMS
+- `python -m unittest discover -s tests -p 'test_*.py' -v`
+- `node tests/test_spatial_proximity.js`
+- `python scripts/validate_build.py` (combined gate used in CI)
 
-| File | Isi |
-|------|-----|
-| `data/regions.json` | Definisi 7 logical region Indonesia, center map, dan daftar provinsi |
-| `data/hotspots/manifest.json` | Index nasional hotspot per region dan tanggal |
-| `data/hotspots/<region>/<YYYY-MM-DD>.json` | Titik FIRMS hanya untuk satu region dan satu tanggal |
-| `data/hotspots/status.json` | Status pipeline FIRMS nasional |
-| `data/firms.json` | Compatibility subset Kalimantan sementara selama transisi |
-| `data/firms-status.json` | Compatibility status Kalimantan sementara |
+Pull-request validation is offline and does not depend on live NASA availability.
 
-Logical region yang digunakan: `sumatra`, `jawa`, `kalimantan`, `sulawesi`, `bali-nusra`, `maluku`, dan `papua`.
+## Limitations
 
-Frontend membaca `manifest.json` terlebih dulu. Pada tampilan Indonesia, browser hanya menampilkan agregasi per region dari manifest. Raw hotspot baru diunduh ketika user memilih region dan tanggal tertentu.
+- Kalimantan has the most complete investigative dossier layer; other regions show FIRMS hotspots and generic concession inventory where available.
+- WALHI concession overlay counts are period-bound claims, not a live FIRMS × polygon join.
+- Political and ownership fields require human-verifiable citations; gaps remain `UNKNOWN` or `TIDAK TERPETAKAN`.
+- Static hosting only. No backend, auth, or realtime WebSocket stream.
 
-### Dossier dan konsesi
+## License
 
-| File | Isi |
-|------|-----|
-| `data/dossiers/manifest.json` | Availability dan URL dossier per region |
-| `data/dossiers/<region>.json` | Dossier untuk satu region |
-| `data/concessions/manifest.json` | Availability dan URL boundary per region |
-| `data/concessions/<region>/boundaries.geojson` | Polygon konsesi untuk satu region |
-
-Saat ini dataset dossier/konsesi yang terisi adalah Kalimantan. Region lain tetap dapat menampilkan hotspot FIRMS walaupun dossier atau polygon konsesinya belum tersedia.
-
-Lihat `data/README.txt` untuk skema legacy/detail tambahan.
-
-## Refresh FIRMS NRT
-
-GitHub Actions menjalankan [`firms-nrt.yml`](.github/workflows/firms-nrt.yml) setiap jam. Workflow membutuhkan repository secret `FIRMS_MAP_KEY` dari NASA FIRMS, mengambil VIIRS S-NPP, NOAA-20, dan NOAA-21 untuk bbox Indonesia, memfilter titik memakai polygon Indonesia, mendeduplikasi observation, mengklasifikasikan titik ke logical region, lalu menulis shard `region × date`.
-
-Jika fetch gagal, salah satu platform kosong, data stale, atau jumlah observation turun secara mencurigakan, dataset last-known-good dipertahankan dan status ditandai stale.
-
-Pada deploy pertama sebelum national manifest tersedia, [`bootstrap_hotspot_shards.py`](scripts/bootstrap_hotspot_shards.py) dapat membuat manifest Kalimantan sementara dari legacy `data/firms.json`. Setelah scheduled national ingest berhasil, manifest bootstrap otomatis tergantikan oleh shard nasional.
-
-Frontend Pages dibangun dengan dua patch berurutan: [`patch_land_holdings_dashboard.py`](scripts/patch_land_holdings_dashboard.py), lalu [`patch_region_dashboard.py`](scripts/patch_region_dashboard.py). Patch kedua mengaktifkan region selector, national summary, lazy loading per region/tanggal, regional dossier/polygon loading, dan chunked MarkerCluster rendering.
-
-CI membangun hasil patch in-memory dan menjalankan `node --check` terhadap JavaScript hasil build, selain regression test data/spatial existing.
-
-## Catatan bukti
-
-Deteksi satelit ≠ kebakaran terverifikasi. Hotspot di konsesi (klaim WALHI) ≠ tuduhan pembakaran. Ikatan politik = sumber publik (jabatan/kampanye/kekerabatan), bukan atribusi api.
-
-Metodologi lengkap pengumpulan data: [`docs/methodology.md`](docs/methodology.md).
-
-Instruksi untuk AI agent (update/lengkapi data): [`agent.md`](agent.md).
+MERATUS source code is [MIT licensed](LICENSE). Third-party datasets (NASA FIRMS, GFW, BIG, media citations, etc.) remain under their own terms. See [DATA_SOURCES.md](DATA_SOURCES.md).

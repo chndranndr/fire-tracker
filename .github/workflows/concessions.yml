@@ -39,14 +39,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Validate concession pipeline offline
         if: github.event_name == 'pull_request'
         run: |
-          python -m py_compile scripts/ingest_concessions.py scripts/patch_concession_inventory_dashboard.py
           python -m unittest tests.test_ingest_concessions -v
-          python scripts/patch_land_holdings_dashboard.py
-          python scripts/patch_region_dashboard.py
-          python scripts/patch_concession_inventory_dashboard.py
+          python scripts/build_dashboard.py --skip-bootstrap
           python - <<'PY'
           import json
           import re

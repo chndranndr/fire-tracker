@@ -25,14 +25,20 @@ region_patch = load_module(
     "patch_region_dashboard",
     ROOT / "scripts" / "patch_region_dashboard.py",
 )
+inventory_patch = load_module(
+    "patch_concession_inventory_dashboard",
+    ROOT / "scripts" / "patch_concession_inventory_dashboard.py",
+)
 
 
 class DashboardBuildTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "index.html").read_text(encoding="utf-8")
-        cls.html = region_patch.build_patched_index(
-            land_patch.build_patched_index(source)
+        cls.html = inventory_patch.build_patched_index(
+            region_patch.build_patched_index(
+                land_patch.build_patched_index(source)
+            )
         )
 
     def test_region_patch_removes_legacy_bulk_frontend_loads(self):
@@ -43,6 +49,8 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertNotIn('loadJson("data/firms.json")', self.html)
         self.assertNotIn('loadJson("data/dossiers.json")', self.html)
         self.assertNotIn('loadJson("data/boundaries.geojson")', self.html)
+        self.assertIn('id="tog-inventory"', self.html)
+        self.assertIn("function refreshConcessionInventoryLayer()", self.html)
 
     def test_patched_inline_javascript_parses(self):
         scripts = re.findall(r"<script>(.*?)</script>", self.html, flags=re.DOTALL)
