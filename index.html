@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
     /* === Design tokens (Palantir Gotham / MERATUS) === */
     :root {
@@ -162,9 +163,10 @@
     .legend .boundary-gfw { border: 1px dashed var(--amber); background: rgba(227, 160, 8, 0.1); }
     .legend .boundary-approx { border: 1px dotted var(--amber); background: rgba(227, 160, 8, 0.04); }
     .legend .boundary-none { border: 1px dashed var(--warn); background: transparent; }
+    .legend .estimated-land { width: 12px; height: 12px; border: 2px dashed #6f9fc8; border-radius: 50%; background: rgba(111,159,200,0.08); }
 
     .findings-banner {
-      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 500;
+      position: absolute; top: 10px; left: 52px; right: 10px; z-index: 500;
       display: flex; align-items: center; gap: 12px; min-height: 42px;
       padding: 7px 10px; border: 1px solid var(--line); background: rgba(18,18,18,0.94);
       box-shadow: 0 2px 12px rgba(0,0,0,0.22);
@@ -339,7 +341,7 @@
         flex: 0 1 120px; min-width: 0; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
       }
-      .findings-banner { top: 8px; left: 8px; right: 8px; gap: 8px; padding: 6px 8px; }
+      .findings-banner { top: 8px; left: 48px; right: 8px; gap: 8px; padding: 6px 8px; }
       .findings-banner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .findings-banner a { display: none; }
       .legend { left: 8px; bottom: 8px; }
@@ -367,7 +369,7 @@
   <div class="app">
     <header class="topbar">
       <div class="callsign">MERATUS</div>
-      <div class="stamp"><strong>SUMBER TERBUKA</strong> · Karhutla Kalimantan</div>
+      <div class="stamp"><strong>SUMBER TERBUKA</strong> · Karhutla Indonesia</div>
       <div class="header-state">
         <div class="stamp header-stats" id="header-stats">memuat data…</div>
         <div class="stamp header-freshness" id="stamp-meta">memuat status…</div>
@@ -387,6 +389,14 @@
         </div>
         <div class="panel-body">
           <input class="search" id="search" type="search" placeholder="Cari perusahaan, orang, partai, ID…" autocomplete="off" />
+
+          <div class="filter-primary">
+            <label>Wilayah
+              <select id="f-region">
+                <option value="indonesia">Indonesia · ringkasan</option>
+              </select>
+            </label>
+          </div>
 
           <div class="filter-primary">
             <label>Sektor utama
@@ -457,6 +467,7 @@
 
           <div class="layer-toggles" aria-label="Lapisan peta">
             <label><input type="checkbox" id="tog-regions" checked /> Boundary dossier</label>
+            <label><input type="checkbox" id="tog-inventory" /> Inventaris semua konsesi</label>
             <label><input type="checkbox" id="tog-centroids" /> Tampilkan semua centroid</label>
           </div>
 
@@ -483,6 +494,7 @@
           <div><span class="boundary-official"></span>OFFICIAL boundary</div>
           <div><span class="boundary-gfw"></span>GFW boundary</div>
           <div><span class="boundary-approx"></span>PERKIRAAN boundary</div>
+          <div><span class="estimated-land"></span>PERKIRAAN LUAS IZIN · bukan batas legal</div>
           <div><span class="boundary-none"></span>Location only / no boundary</div>
         </div>
       </section>
@@ -504,12 +516,14 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script>
   (function () {
     "use strict";
 
-    /* Data dinamis: edit data/firms.json + data/dossiers.json lalu refresh.
+    /* Data dinamis: manifest + shard per region/tanggal.
        Butuh http server lokal (file:// diblokir CORS fetch). */
 
     var elList = document.getElementById("obj-list");
@@ -524,9 +538,9 @@
     var mainEl = document.querySelector(".main");
     var browserPanel = document.getElementById("browser-panel");
 
-    elHeaderStats.textContent = "MEMUAT data/*.json …";
+    elHeaderStats.textContent = "MEMUAT manifest Indonesia …";
     elStamp.textContent = "memuat status…";
-    elInsp.innerHTML = '<div class="insp-empty">Memuat <span class="mono">data/firms.json</span>, <span class="mono">data/dossiers.json</span> &amp; <span class="mono">data/boundaries.geojson</span>…</div>';
+    elInsp.innerHTML = '<div class="insp-empty">Memuat manifest hotspot, dossier, dan konsesi per wilayah…</div>';
 
     function synthesizeSipongiPoints(sip) {
       if (!sip) return [];
@@ -568,16 +582,15 @@
     }
 
     Promise.all([
-      loadJson("data/firms.json").catch(function (err) {
-        return { __error: err, meta: null, points: [] };
-      }),
-      loadJson("data/dossiers.json"),
-      loadJson("data/boundaries.geojson").catch(function () {
-        return { type: "FeatureCollection", features: [] };
-      }),
-      loadJson("data/firms-status.json").catch(function () { return null; })
+      loadJson("data/regions.json"),
+      loadJson("data/hotspots/manifest.json"),
+      loadJson("data/hotspots/status.json").catch(function () { return null; }),
+      loadJson("data/dossiers/manifest.json").catch(function () { return { regions: {} }; }),
+      loadJson("data/concessions/manifest.json").catch(function () { return { regions: {} }; }),
+      loadJson("data/affiliated-land-holdings.json").catch(function () { return { meta: {}, people: [], holdings: [] }; }),
+      loadJson("data/affiliated-land-display-centers.json").catch(function () { return { meta: {}, centers: {} }; })
     ]).then(function (pair) {
-      boot(pair[0], pair[1], pair[2], pair[3]);
+      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6]);
     }).catch(function (err) {
       elHeaderStats.textContent = "DATA ERROR";
       elStamp.textContent = "GAGAL MUAT JSON";
@@ -587,21 +600,41 @@
         "</span></div>";
     });
 
-    function boot(firmsPayload, dossierPayload, boundariesGeo, pipelineStatusPayload) {
+    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload) {
     var firms = [];
-    var firmsMeta = null;
+    var firmsMeta = hotspotsManifest && hotspotsManifest.meta ? hotspotsManifest.meta : null;
     var pipelineStatus = (pipelineStatusPayload && typeof pipelineStatusPayload === "object") ? pipelineStatusPayload : null;
     var usingFallback = false;
-    var sipongi = dossierPayload.sipongiFallback || null;
-    var dossiers = dossierPayload.dossiers || [];
-    var walhi = dossierPayload.walhiSummary || null;
+    var sipongi = null;
+    var dossiers = [];
+    var walhi = null;
+    var regions = regionsPayload && Array.isArray(regionsPayload.regions) ? regionsPayload.regions : [];
+    var regionById = {};
+    regions.forEach(function (region) { regionById[region.id] = region; });
+    var hotspotCache = {};
+    var staticRegionCache = {};
+    var concessionInventoryManifestCache = {};
+    var concessionInventoryDataCache = {};
+    var currentConcessionInventoryManifest = null;
+    var concessionInventoryRequest = 0;
+    var regionRequest = 0;
+    var hotspotRequest = 0;
+    var landHoldings = affiliatedPayload && Array.isArray(affiliatedPayload.holdings) ? affiliatedPayload.holdings : [];
+    var landPeople = affiliatedPayload && Array.isArray(affiliatedPayload.people) ? affiliatedPayload.people : [];
+    var landPeopleById = {};
+    landPeople.forEach(function (p) { landPeopleById[p.id] = p; });
+    var holdingCenters = holdingCentersPayload && holdingCentersPayload.centers ? holdingCentersPayload.centers : {};
     var boundaryById = {};
-    (boundariesGeo && boundariesGeo.features ? boundariesGeo.features : []).forEach(function (f) {
-      var id = f.properties && f.properties.dossierId;
-      if (!id || !f.geometry) return;
-      if (!boundaryById[id]) boundaryById[id] = [];
-      boundaryById[id].push(f);
-    });
+
+    function rebuildBoundaryIndex(boundariesGeo) {
+      boundaryById = {};
+      (boundariesGeo && boundariesGeo.features ? boundariesGeo.features : []).forEach(function (f) {
+        var id = f.properties && f.properties.dossierId;
+        if (!id || !f.geometry) return;
+        if (!boundaryById[id]) boundaryById[id] = [];
+        boundaryById[id].push(f);
+      });
+    }
 
     function normalizeBoundaryQuality(value) {
       var q = String(value || "").trim().toUpperCase();
@@ -666,13 +699,16 @@
     function renderDatasetState() {
       var count = firmsMeta && firmsMeta.count != null ? firmsMeta.count : firms.length;
       var mapped = dossiers.filter(function (d) { return (boundaryById[d.id] || []).length > 0; }).length;
-      elHeaderStats.textContent = count.toLocaleString("id-ID") + " FIRMS detections · " + dossiers.length + " dossiers · " + mapped + "/" + dossiers.length + " boundaries mapped";
+      var scopeLabel = state.region === "indonesia" ? "Indonesia" : ((regionById[state.region] || {}).label || state.region);
+      var holdingCount = state.region === "kalimantan" ? landHoldings.length : 0;
+      var inventoryCount = currentConcessionInventoryManifest && currentConcessionInventoryManifest.count != null ? Number(currentConcessionInventoryManifest.count) : 0;
+      elHeaderStats.textContent = count.toLocaleString("id-ID") + " FIRMS detections · " + scopeLabel + " · " + inventoryCount.toLocaleString("id-ID") + " concession records · " + dossiers.length + " dossiers · " + holdingCount + " affiliated land holdings · " + mapped + "/" + dossiers.length + " boundaries mapped";
 
       var newest = firmsMeta && firmsMeta.newestDetectionUtc
         ? new Date(firmsMeta.newestDetectionUtc)
         : latestDetectionDate(firms);
       var syncValue = firmsMeta && (firmsMeta.lastSuccessfulSync || firmsMeta.fetched);
-      var sourceName = usingFallback ? "SIPONGI fallback" : (/NRT/i.test((firmsMeta && firmsMeta.source) || "") ? "NASA FIRMS NRT" : "NASA FIRMS snapshot");
+      var sourceName = usingFallback ? "SIPONGI fallback" : ((hotspotsManifest.meta && hotspotsManifest.meta.bootstrap) ? "FIRMS bootstrap" : "NASA FIRMS NRT");
       var status = usingFallback ? "fallback" : (pipelineStatus && (pipelineStatus.pipelineStatus === "stale" || pipelineStatus.stale === true)
         ? "stale"
         : (firmsMeta && (firmsMeta.pipelineStatus === "stale" || firmsMeta.stale === true) ? "stale" : "healthy"));
@@ -698,27 +734,13 @@
         if (copyEl) copyEl.textContent = (walhi.inConcession != null && walhi.totalKalimantan != null
           ? walhi.inConcession.toLocaleString("id-ID") + " / " + walhi.totalKalimantan.toLocaleString("id-ID") + " reported hotspots berada di wilayah konsesi"
           : "reported hotspots berada di wilayah konsesi");
+      } else {
+        if (periodEl) periodEl.textContent = state.region === "indonesia" ? "coverage nasional" : "coverage regional";
+        if (statEl) statEl.textContent = state.region === "indonesia" ? "7 REGION" : "—";
+        if (copyEl) copyEl.textContent = state.region === "indonesia"
+          ? "Pilih wilayah untuk memuat hotspot mentah, dossier, dan polygon konsesi secara lazy."
+          : "Dossier / konsesi belum tersedia untuk wilayah ini; hotspot FIRMS tetap tersedia.";
       }
-    }
-
-    if (firmsPayload && !firmsPayload.__error) {
-      firms = Array.isArray(firmsPayload)
-        ? firmsPayload
-        : (firmsPayload.points || []);
-      firmsMeta = Array.isArray(firmsPayload) ? null : (firmsPayload.meta || null);
-    }
-
-    if (!firms.length) {
-      usingFallback = true;
-      firms = synthesizeSipongiPoints(sipongi);
-      firmsMeta = {
-        source: "SIPONGI/Kemenhut fallback (17–19 Agu 2026)",
-        count: firms.length,
-        fallback: true,
-        loadError: firmsPayload && firmsPayload.__error
-          ? String(firmsPayload.__error.message || firmsPayload.__error)
-          : null
-      };
     }
 
     /* ---------- State ---------- */
@@ -726,6 +748,7 @@
       mode: "map",
       selectedId: null,
       selectedType: null,
+      region: "indonesia",
       prov: "",
       sector: "",
       party: "",
@@ -740,11 +763,360 @@
       sheetState: "half"
     };
 
-    var dates = Array.from(new Set(firms.map(function (f) { return f.date; }))).sort();
-    state.dates = dates;
-    state.dateIdx = dates.length ? dates.length - 1 : 0;
+    function regionManifestEntry(regionId) {
+      return hotspotsManifest && hotspotsManifest.regions
+        ? (hotspotsManifest.regions[regionId] || null)
+        : null;
+    }
 
-    renderDatasetState();
+    function manifestDayEntry(regionId, date) {
+      var entry = regionManifestEntry(regionId);
+      if (!entry) return null;
+      return (entry.days || []).find(function (day) { return day.date === date; }) || null;
+    }
+
+    function nationalCountForDate(date) {
+      if (!date || !hotspotsManifest || !hotspotsManifest.regions) return 0;
+      return Object.keys(hotspotsManifest.regions).reduce(function (sum, regionId) {
+        var day = manifestDayEntry(regionId, date);
+        return sum + (day ? Number(day.count || 0) : 0);
+      }, 0);
+    }
+
+    function regionCountForDate(regionId, date) {
+      if (regionId === "indonesia") return nationalCountForDate(date);
+      var day = manifestDayEntry(regionId, date);
+      return day ? Number(day.count || 0) : 0;
+    }
+
+    function availableDates(regionId) {
+      var values = [];
+      if (regionId === "indonesia") {
+        Object.keys((hotspotsManifest && hotspotsManifest.regions) || {}).forEach(function (id) {
+          ((hotspotsManifest.regions[id] || {}).days || []).forEach(function (day) { values.push(day.date); });
+        });
+      } else {
+        var entry = regionManifestEntry(regionId);
+        ((entry && entry.days) || []).forEach(function (day) { values.push(day.date); });
+      }
+      return Array.from(new Set(values)).sort();
+    }
+
+    function configureDates(regionId, preferredDate) {
+      var dates = availableDates(regionId);
+      state.dates = dates;
+      var preferredIndex = preferredDate ? dates.indexOf(preferredDate) : -1;
+      state.dateIdx = preferredIndex >= 0 ? preferredIndex : (dates.length ? dates.length - 1 : 0);
+      elTime.min = 0;
+      elTime.max = Math.max(0, dates.length - 1);
+      elTime.value = state.dateIdx;
+      elTime.disabled = !dates.length;
+    }
+
+    function updateProvinceOptions(regionId) {
+      var select = document.getElementById("f-prov");
+      var selected = state.prov;
+      var provinces = [];
+      if (regionId === "indonesia") {
+        regions.forEach(function (region) { provinces = provinces.concat(region.provinces || []); });
+      } else if (regionById[regionId]) {
+        provinces = regionById[regionId].provinces || [];
+      }
+      select.innerHTML = '<option value="">Semua</option>' + provinces.map(function (province) {
+        return '<option>' + escapeHtml(province) + '</option>';
+      }).join("");
+      state.prov = provinces.indexOf(selected) >= 0 ? selected : "";
+      select.value = state.prov;
+    }
+
+    function populateRegionSelector() {
+      var select = document.getElementById("f-region");
+      select.innerHTML = '<option value="indonesia">Indonesia · ringkasan</option>' + regions.map(function (region) {
+        return '<option value="' + escapeHtml(region.id) + '">' + escapeHtml(region.label) + '</option>';
+      }).join("");
+      select.value = state.region;
+    }
+
+    function virtualNationalPayload(date) {
+      return {
+        meta: {
+          coverageId: (hotspotsManifest.meta && hotspotsManifest.meta.coverageId) || "indonesia",
+          region: "indonesia",
+          date: date,
+          count: nationalCountForDate(date),
+          source: "NASA FIRMS NRT VIIRS",
+          lastSuccessfulSync: hotspotsManifest.meta && hotspotsManifest.meta.lastSuccessfulSync,
+          newestDetectionUtc: hotspotsManifest.meta && hotspotsManifest.meta.newestDetectionUtc,
+          pipelineVersion: hotspotsManifest.meta && hotspotsManifest.meta.pipelineVersion
+        },
+        points: []
+      };
+    }
+
+    function loadHotspotDay(regionId, date) {
+      if (regionId === "indonesia") return Promise.resolve(virtualNationalPayload(date));
+      var entry = manifestDayEntry(regionId, date);
+      if (!entry || !entry.url) {
+        return Promise.resolve({
+          meta: {
+            coverageId: "indonesia",
+            region: regionId,
+            date: date,
+            count: 0,
+            source: "NASA FIRMS NRT VIIRS",
+            lastSuccessfulSync: hotspotsManifest.meta && hotspotsManifest.meta.lastSuccessfulSync
+          },
+          points: []
+        });
+      }
+      var key = regionId + "|" + date;
+      if (!hotspotCache[key]) {
+        hotspotCache[key] = loadJson(entry.url).catch(function (err) {
+          delete hotspotCache[key];
+          throw err;
+        });
+      }
+      return hotspotCache[key];
+    }
+
+    function loadRegionStatic(regionId) {
+      if (regionId === "indonesia") {
+        return Promise.resolve({
+          dossier: { dossiers: [], walhiSummary: null, sipongiFallback: null },
+          boundaries: { type: "FeatureCollection", features: [] }
+        });
+      }
+      if (staticRegionCache[regionId]) return staticRegionCache[regionId];
+      var dossierEntry = dossierManifest && dossierManifest.regions ? dossierManifest.regions[regionId] : null;
+      var concessionEntry = concessionManifest && concessionManifest.regions ? concessionManifest.regions[regionId] : null;
+      var dossierUrl = dossierEntry && dossierEntry.available ? dossierEntry.url : null;
+      if (!dossierUrl && concessionEntry && concessionEntry.available) dossierUrl = concessionEntry.dossiers;
+      var boundaryUrl = concessionEntry && concessionEntry.available ? concessionEntry.boundaries : null;
+      staticRegionCache[regionId] = Promise.all([
+        dossierUrl ? loadJson(dossierUrl) : Promise.resolve({ dossiers: [], walhiSummary: null, sipongiFallback: null }),
+        boundaryUrl ? loadJson(boundaryUrl) : Promise.resolve({ type: "FeatureCollection", features: [] })
+      ]).then(function (pair) {
+        return { dossier: pair[0], boundaries: pair[1] };
+      }).catch(function (err) {
+        delete staticRegionCache[regionId];
+        throw err;
+      });
+      return staticRegionCache[regionId];
+    }
+
+    function applyHotspotPayload(payload) {
+      firms = payload && Array.isArray(payload.points) ? payload.points : [];
+      firmsMeta = payload && payload.meta ? payload.meta : null;
+      usingFallback = false;
+      if (!firms.length && state.region === "kalimantan" && sipongi) {
+        var fallback = synthesizeSipongiPoints(sipongi).filter(function (point) {
+          return !currentDate() || point.date === currentDate();
+        });
+        if (fallback.length) {
+          firms = fallback;
+          usingFallback = true;
+          firmsMeta = {
+            source: "SIPONGI/Kemenhut fallback",
+            count: fallback.length,
+            fallback: true,
+            date: currentDate(),
+            lastSuccessfulSync: pipelineStatus && pipelineStatus.lastSuccessfulSync
+          };
+        }
+      }
+    }
+
+
+    function loadConcessionInventoryManifest(regionId) {
+      if (regionId === "indonesia") return Promise.resolve(null);
+      var concessionEntry = concessionManifest && concessionManifest.regions ? concessionManifest.regions[regionId] : null;
+      var url = concessionEntry && concessionEntry.inventory;
+      if (!url) return Promise.resolve(null);
+      if (!concessionInventoryManifestCache[url]) {
+        concessionInventoryManifestCache[url] = loadJson(url).catch(function (err) {
+          delete concessionInventoryManifestCache[url];
+          console.warn("Concession inventory manifest unavailable", regionId, err);
+          return null;
+        });
+      }
+      return concessionInventoryManifestCache[url];
+    }
+
+    function loadConcessionInventoryData(entry) {
+      if (!entry || !entry.url) return Promise.resolve({ type: "FeatureCollection", features: [] });
+      if (!concessionInventoryDataCache[entry.url]) {
+        concessionInventoryDataCache[entry.url] = loadJson(entry.url).catch(function (err) {
+          delete concessionInventoryDataCache[entry.url];
+          throw err;
+        });
+      }
+      return concessionInventoryDataCache[entry.url];
+    }
+
+    function inventoryEntriesForView() {
+      var layers = currentConcessionInventoryManifest && Array.isArray(currentConcessionInventoryManifest.layers)
+        ? currentConcessionInventoryManifest.layers : [];
+      if (!state.sector) return layers;
+      return layers.filter(function (entry) { return (entry.sectors || []).indexOf(state.sector) !== -1; });
+    }
+
+    function inventoryStyle(feature) {
+      var p = feature.properties || {};
+      var sector = p.sector || "";
+      var color = sector === "Tambang" ? "#9c7ad6" : sector === "Sawit" ? "#c38b42" : "#6d9b76";
+      return { color: color, weight: p.quality === "OFFICIAL" ? 1.2 : 1, opacity: 0.82,
+        fillColor: color, fillOpacity: 0.075, dashArray: p.quality === "GFW" ? "6 5" : null };
+    }
+
+    function inventoryValue(value, suffix) {
+      if (value == null || value === "") return "—";
+      if (typeof value === "number") return value.toLocaleString("id-ID", { maximumFractionDigits: 2 }) + (suffix || "");
+      return escapeHtml(value) + (suffix || "");
+    }
+
+    function showConcessionInventoryFeature(feature) {
+      var p = feature.properties || {};
+      state.selectedId = p.inventoryId || p.sourceRecordId || p.name || "inventory";
+      state.selectedType = "inventory";
+      var source = p.sourceUrl
+        ? '<a href="' + escapeHtml(p.sourceUrl) + '" target="_blank" rel="noopener">' + escapeHtml(p.source || "Source record") + ' ↗</a>'
+        : escapeHtml(p.source || "Source tidak tersedia");
+      var caveat = p.coverageCaveat ? '<div class="caveat">' + escapeHtml(p.coverageCaveat) + '</div>' : '';
+      var dossierLink = p.dossierId
+        ? '<div class="caveat" style="border-color:var(--amber)"><strong>INVESTIGATIVE DOSSIER MATCH</strong><br/>Nama operator cocok dengan dossier MERATUS <span class="mono">' + escapeHtml(p.dossierId) + '</span>. Ini hanya cross-link nama, bukan inferensi kepemilikan tambahan.</div>'
+        : '';
+      elInsp.innerHTML =
+        '<div class="insp-title">' + escapeHtml(p.name || "Concession record") + '</div>' +
+        '<div class="insp-subtitle">Inventaris konsesi · ' + escapeHtml(p.sector || "sektor tidak dinyatakan") + ' · ' + escapeHtml(p.subtype || "tipe tidak dinyatakan") + '</div>' +
+        '<div class="insp-id">CONCESSION/' + escapeHtml(String(p.inventoryId || p.sourceRecordId || "UNKNOWN")) + '</div>' +
+        '<div class="summary-grid">' +
+          '<div class="summary-card"><span class="label">Source quality</span><strong>' + escapeHtml(p.quality || "—") + '</strong><small>' + escapeHtml(p.sourceDataset || "") + '</small></div>' +
+          '<div class="summary-card"><span class="label">Reported area</span><strong>' + inventoryValue(p.areaHa, ' ha') + '</strong><small>upstream attribute bila tersedia</small></div>' +
+          '<div class="summary-card"><span class="label">Permit / HGU</span><strong>' + escapeHtml(p.permitNumber || p.hguNumber || "—") + '</strong><small>' + escapeHtml(p.permitDate || p.validFrom || "tanggal tidak tersedia") + '</small></div>' +
+          '<div class="summary-card"><span class="label">Status</span><strong>' + escapeHtml(p.status || p.legalStatus || "—") + '</strong><small>' + escapeHtml(p.commodity || p.miningType || p.group || "") + '</small></div>' +
+        '</div>' +
+        '<details class="details-section" open><summary>Source attributes</summary><div class="section-content"><dl class="kv">' +
+          '<dt>Operator / company</dt><dd>' + escapeHtml(p.name || "—") + '</dd>' +
+          '<dt>Group</dt><dd>' + escapeHtml(p.group || "—") + '</dd>' +
+          '<dt>Province</dt><dd>' + escapeHtml(p.province || p.provinceCode || "—") + '</dd>' +
+          '<dt>District</dt><dd>' + escapeHtml(p.district || "—") + '</dd>' +
+          '<dt>Commodity</dt><dd>' + escapeHtml(p.commodity || "—") + '</dd>' +
+          '<dt>Permit type</dt><dd>' + escapeHtml(p.permitType || p.subtype || "—") + '</dd>' +
+          '<dt>Valid to</dt><dd>' + escapeHtml(p.validTo || "—") + '</dd>' +
+          '<dt>Source record</dt><dd>' + escapeHtml(p.sourceRecordId || "—") + '</dd>' +
+        '</dl></div></details>' +
+        '<details class="details-section" open><summary>Provenance</summary><div class="section-content"><p style="font-size:13px;line-height:1.4">' + source + '</p>' +
+          '<p style="font-size:12px;color:var(--muted)">Geometry disederhanakan untuk tampilan web. Untuk batas/izin otoritatif, periksa record sumber.</p></div></details>' +
+        dossierLink + caveat +
+        '<div class="caveat"><strong>NO FIRE ATTRIBUTION</strong><br/>Keberadaan hotspot di dalam atau dekat polygon konsesi adalah konteks spasial saja. Dataset ini tidak menyatakan operator menyebabkan kebakaran, melakukan pelanggaran, atau memiliki afiliasi politik tertentu.</div>';
+      openMobileInspector();
+    }
+
+    function refreshConcessionInventoryLayer() {
+      concessionInventoryLayer.clearLayers();
+      var enabled = document.getElementById("tog-inventory");
+      if (!enabled || !enabled.checked || state.region === "indonesia" || !currentConcessionInventoryManifest) return;
+      var entries = inventoryEntriesForView();
+      if (!entries.length) return;
+      var token = ++concessionInventoryRequest;
+      Promise.all(entries.map(loadConcessionInventoryData)).then(function (payloads) {
+        if (token !== concessionInventoryRequest) return;
+        payloads.forEach(function (payload) {
+          var gj = L.geoJSON(payload || { type: "FeatureCollection", features: [] }, {
+            style: inventoryStyle,
+            onEachFeature: function (feature, layer) {
+              var p = feature.properties || {};
+              layer.bindTooltip('<strong>' + escapeHtml(p.name || "Concession record") + '</strong><br/>' +
+                escapeHtml(p.sector || "") + ' · ' + escapeHtml(p.subtype || "") + ' · ' + escapeHtml(p.quality || ""),
+                { sticky: true, opacity: 0.94 });
+              layer.on("click", function () { showConcessionInventoryFeature(feature); });
+            }
+          });
+          concessionInventoryLayer.addLayer(gj);
+        });
+      }).catch(function (err) {
+        if (token !== concessionInventoryRequest) return;
+        console.warn("Failed to load concession inventory", err);
+        elStamp.dataset.status = "stale";
+        elStamp.title = "Sebagian inventaris konsesi gagal dimuat: " + String(err && err.message ? err.message : err);
+      });
+    }
+
+    function applyStaticPayload(payload) {
+      var dossierPayload = payload && payload.dossier ? payload.dossier : {};
+      dossiers = Array.isArray(dossierPayload.dossiers) ? dossierPayload.dossiers : [];
+      walhi = dossierPayload.walhiSummary || null;
+      sipongi = dossierPayload.sipongiFallback || null;
+      rebuildBoundaryIndex(payload && payload.boundaries ? payload.boundaries : null);
+    }
+
+    function focusRegion(regionId) {
+      programmaticMapMove = true;
+      if (regionId === "indonesia") {
+        map.fitBounds([[-11.5, 94.5], [6.5, 141.5]], { padding: [12, 12], animate: false });
+        nationalOverviewZoom = map.getZoom();
+        return;
+      }
+      var region = regionById[regionId];
+      if (region && region.center) map.setView(region.center, region.zoom || 5, { animate: false });
+    }
+
+    function renderAfterRegionLoad() {
+      state.selectedId = null;
+      state.selectedType = null;
+      elInsp.innerHTML = '<div class="insp-empty">Pilih cluster api, konsesi, atau node graf. Coverage aktif: ' + escapeHtml(state.region === "indonesia" ? "Indonesia" : ((regionById[state.region] || {}).label || state.region)) + '.</div>';
+      renderDatasetState();
+      renderList();
+      refreshConcessionMarkers();
+      refreshConcessionInventoryLayer();
+      refreshEstimatedLandLayer();
+      refreshFirmsLayer();
+      if (state.mode === "graph") drawGraph(null);
+    }
+
+    function selectRegion(regionId, preferredDate) {
+      if (regionId !== "indonesia" && !regionById[regionId]) return Promise.resolve();
+      var token = ++regionRequest;
+      ++hotspotRequest;
+      state.region = regionId;
+      document.getElementById("f-region").value = regionId;
+      configureDates(regionId, preferredDate || currentDate());
+      updateProvinceOptions(regionId);
+      elTimeLabel.textContent = "memuat " + (regionId === "indonesia" ? "Indonesia" : ((regionById[regionId] || {}).label || regionId)) + "…";
+      var date = currentDate();
+      return Promise.all([loadHotspotDay(regionId, date), loadRegionStatic(regionId), loadConcessionInventoryManifest(regionId)]).then(function (pair) {
+        if (token !== regionRequest) return;
+        applyStaticPayload(pair[1]);
+        currentConcessionInventoryManifest = pair[2];
+        applyHotspotPayload(pair[0]);
+        focusRegion(regionId);
+        renderAfterRegionLoad();
+      }).catch(function (err) {
+        if (token !== regionRequest) return;
+        elHeaderStats.textContent = "REGION DATA ERROR";
+        elTimeLabel.textContent = "gagal memuat wilayah";
+        elInsp.innerHTML = '<div class="insp-empty">Gagal memuat data wilayah.<br/><br/><span class="mono">' + escapeHtml(err && err.message ? err.message : err) + '</span></div>';
+      });
+    }
+
+    function loadSelectedDate() {
+      var token = ++hotspotRequest;
+      var regionId = state.region;
+      var date = currentDate();
+      elTimeLabel.textContent = "memuat " + (date || "tanggal") + "…";
+      return loadHotspotDay(regionId, date).then(function (payload) {
+        if (token !== hotspotRequest || regionId !== state.region) return;
+        applyHotspotPayload(payload);
+        renderDatasetState();
+        refreshFirmsLayer();
+      }).catch(function (err) {
+        if (token !== hotspotRequest) return;
+        elTimeLabel.textContent = "gagal memuat " + (date || "tanggal");
+        elStamp.dataset.status = "stale";
+        elStamp.title = String(err && err.message ? err.message : err);
+      });
+    }
+
 
     /* ---------- Filters / list ---------- */
     function partyMatch(d) {
@@ -1104,21 +1476,50 @@
     /* end spatial proximity helpers */
 
     /* ---------- Map ---------- */
-    var map = L.map("map", { zoomControl: true, attributionControl: true }).setView([-1.5, 114.5], 6);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OSM &copy; CARTO · FIRMS NASA',
-      subdomains: "abcd",
-      maxZoom: 18
+    var nationalOverviewZoom = 5;
+    var programmaticMapMove = false;
+    var map = L.map("map", {
+      zoomControl: true,
+      attributionControl: true,
+      minZoom: 1,
+      maxZoom: 18,
+      maxBounds: [[-85.0511, -180], [85.0511, 180]],
+      maxBoundsViscosity: 1
+    }).setView([-2.5, 118], 5);
+    var basemap = L.maplibreGL({
+      style: "https://tiles.openfreemap.org/styles/dark",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://openfreemap.org">OpenFreeMap</a> · FIRMS NASA'
     }).addTo(map);
+    basemap.getMaplibreMap().on("error", function (event) {
+      console.error("Basemap error:", event.error);
+    });
+    map.attributionControl.addAttribution("FIRMS NASA");
+    map.on("zoomend", function () {
+      if (programmaticMapMove) {
+        programmaticMapMove = false;
+        return;
+      }
+      if (state.region === "indonesia") return;
+      if (map.getZoom() < nationalOverviewZoom) {
+        selectRegion("indonesia", currentDate());
+      }
+    });
 
     var clusterGroup = L.markerClusterGroup({
       showCoverageOnHover: false,
       maxClusterRadius: 45,
-      spiderfyOnMaxZoom: true
+      spiderfyOnMaxZoom: true,
+      removeOutsideVisibleBounds: true,
+      chunkedLoading: true,
+      chunkInterval: 100,
+      chunkDelay: 20
     });
     map.addLayer(clusterGroup);
 
+    var nationalSummaryLayer = L.layerGroup().addTo(map);
+    var concessionInventoryLayer = L.layerGroup().addTo(map);
     var concessionLayer = L.layerGroup().addTo(map);
+    var estimatedLandLayer = L.layerGroup().addTo(map);
     var regionLayer = L.layerGroup().addTo(map);
     var regionLayersById = {};
 
@@ -1146,8 +1547,41 @@
       });
     }
 
+    function refreshNationalSummary() {
+      nationalSummaryLayer.clearLayers();
+      var date = currentDate();
+      regions.forEach(function (region) {
+        var count = regionCountForDate(region.id, date);
+        if (!count || !region.center) return;
+        var radius = Math.max(7, Math.min(20, 6 + Math.log10(count + 1) * 4));
+        var marker = L.circleMarker(region.center, {
+          radius: radius,
+          color: "#e23a14",
+          weight: 1,
+          opacity: 0.9,
+          fillColor: "#e23a14",
+          fillOpacity: 0.28
+        });
+        marker.bindTooltip(
+          '<strong>' + escapeHtml(region.label) + '</strong><br/>' +
+          count.toLocaleString("id-ID") + ' FIRMS detections · ' + escapeHtml(date || "—") +
+          '<br/><span style="color:#9a968e">klik untuk memuat region</span>',
+          { sticky: true, opacity: 0.96 }
+        );
+        marker.on("click", function () { selectRegion(region.id, date); });
+        nationalSummaryLayer.addLayer(marker);
+      });
+    }
+
     function refreshFirmsLayer() {
       clusterGroup.clearLayers();
+      nationalSummaryLayer.clearLayers();
+      if (state.region === "indonesia") {
+        refreshNationalSummary();
+        var nationalCount = nationalCountForDate(currentDate());
+        elTimeLabel.textContent = (currentDate() || "—") + " · " + nationalCount.toLocaleString("id-ID") + " detections · ringkasan 7 region";
+        return;
+      }
       var pts = firmsForView();
       var markers = [];
       for (var i = 0; i < pts.length; i++) {
@@ -1160,7 +1594,8 @@
         })(pts[i]);
       }
       clusterGroup.addLayers(markers);
-      elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " satellite detections" +
+      var scope = (regionById[state.region] || {}).label || state.region;
+      elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " satellite detections · " + scope +
         (state.conf ? " · " + state.conf : "") + (state.platform ? " · " + state.platform : "");
     }
 
@@ -1176,6 +1611,108 @@
         fillOpacity: selected ? 0.32 : (isApprox ? 0.06 : (isGfw ? 0.12 : 0.22)),
         dashArray: isApprox ? "2 4" : (isGfw ? "7 5" : null)
       };
+    }
+
+
+    function estimatedLandRadiusMeters(areaHa) {
+      var hectares = Number(areaHa);
+      if (!isFinite(hectares) || hectares <= 0) return 0;
+      return Math.sqrt((hectares * 10000) / Math.PI);
+    }
+
+    function formatAreaHa(areaHa) {
+      var value = Number(areaHa);
+      return isFinite(value)
+        ? value.toLocaleString("id-ID", { maximumFractionDigits: 2 }) + " ha"
+        : "luas tidak tersedia";
+    }
+
+    function holdingCenter(h) {
+      return h && h.id ? holdingCenters[h.id] : null;
+    }
+
+    function showLandHolding(h) {
+      state.selectedId = h.id;
+      state.selectedType = "landholding";
+      var center = holdingCenter(h) || {};
+      var control = h.control || {};
+      var persons = (control.persons || []).map(function (link) {
+        var p = landPeopleById[link.personId];
+        var relation = p && p.relationToHajiIsam ? p.relationToHajiIsam + " · " : "";
+        return '<div class="tie-card"><strong>' + escapeHtml(p ? p.name : link.personId) + '</strong><br/>' +
+          '<span class="tie-meta">' + escapeHtml(relation + (link.role || "role tidak dinyatakan")) + '</span></div>';
+      }).join("") || '<div class="insp-empty">Tidak ada person yang dikunci.</div>';
+
+      var holdingSources = (h.sources || []).map(function (s) {
+        return '<li><a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">' +
+          escapeHtml(s.label || s.type || "source") + '</a></li>';
+      }).join("");
+      var centerSources = (center.sources || []).map(function (url, idx) {
+        return '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Display-center source ' + (idx + 1) + '</a></li>';
+      }).join("");
+      var caves = (h.caveats || []).map(function (c) {
+        return '<div class="caveat">' + escapeHtml(c) + '</div>';
+      }).join("");
+      var centerText = center.lat != null && center.lon != null
+        ? Number(center.lat).toFixed(4) + ', ' + Number(center.lon).toFixed(4)
+        : '—';
+
+      elInsp.innerHTML =
+        '<div class="insp-title">' + escapeHtml(h.company) + '</div>' +
+        '<div class="insp-subtitle">' + escapeHtml(h.sector || '') + ' · ' + escapeHtml(h.province || '') + '</div>' +
+        '<div class="insp-id">OBJ/' + escapeHtml(String(h.id || '').toUpperCase()) + ' · LandHolding / Control</div>' +
+        '<div class="summary-grid">' +
+          '<div class="summary-card"><span class="label">Reported permit area</span><strong>' + escapeHtml(formatAreaHa(h.areaHa)) + '</strong><small>' + escapeHtml(h.permitType || 'izin tidak dinyatakan') + '</small></div>' +
+          '<div class="summary-card"><span class="label">Map geometry</span><strong>PERKIRAAN LUAS IZIN</strong><small>bukan batas legal konsesi</small></div>' +
+          '<div class="summary-card"><span class="label">Control link</span><strong>' + escapeHtml(control.group || 'Tidak terpetakan') + '</strong><small>' + escapeHtml(control.relationshipType || 'relationship tidak dinyatakan') + ' · confidence ' + escapeHtml(control.confidence || '—') + '</small></div>' +
+          '<div class="summary-card"><span class="label">Display center</span><strong>' + escapeHtml(center.precision || 'approximate') + '</strong><small>' + escapeHtml(center.label || centerText) + '</small></div>' +
+        '</div>' +
+        '<div class="caveat" style="border-color:#6f9fc8"><strong>SCHEMATIC EQUAL-AREA CIRCLE</strong><br/>' +
+          'Radius dihitung dari luas izin yang dilaporkan. Bentuk lingkaran bukan bentuk HGU/PBPH sebenarnya. ' +
+          'Titik pusat juga dapat berupa pendekatan wilayah operasi sesuai label precision.</div>' +
+        '<details class="details-section" open><summary>Ownership / control</summary><div class="section-content">' + persons + '</div></details>' +
+        '<details class="details-section" open><summary>Permit details</summary><div class="section-content"><dl class="kv">' +
+          '<dt>Permit type</dt><dd>' + escapeHtml(h.permitType || '—') + '</dd>' +
+          '<dt>Permit number</dt><dd>' + escapeHtml(h.permitNumber || '—') + '</dd>' +
+          '<dt>Status</dt><dd>' + escapeHtml(h.permitStatus || '—') + '</dd>' +
+          '<dt>Reported area</dt><dd>' + escapeHtml(formatAreaHa(h.areaHa)) + '</dd>' +
+          '<dt>Display center</dt><dd>' + escapeHtml(centerText) + '</dd>' +
+          '<dt>Center precision</dt><dd>' + escapeHtml(center.precision || '—') + '</dd>' +
+          '</dl><p style="font-size:12px;color:var(--muted);line-height:1.4">' + escapeHtml(center.evidence || '') + '</p></div></details>' +
+        '<details class="details-section"><summary>Sources</summary><div class="section-content"><strong>Holding evidence</strong><ul class="src-list">' + holdingSources + '</ul>' +
+          '<strong>Display-center evidence</strong><ul class="src-list">' + centerSources + '</ul></div></details>' +
+        '<details class="details-section"><summary>Caveats (' + (h.caveats || []).length + ')</summary><div class="section-content">' + caves + '</div></details>';
+
+      openMobileInspector();
+    }
+
+    function refreshEstimatedLandLayer() {
+      estimatedLandLayer.clearLayers();
+      if (state.region !== "kalimantan") return;
+      landHoldings.forEach(function (h) {
+        var center = holdingCenter(h);
+        if (!center || center.lat == null || center.lon == null) return;
+        var radius = estimatedLandRadiusMeters(h.areaHa);
+        if (!radius) return;
+
+        var circle = L.circle([Number(center.lat), Number(center.lon)], {
+          radius: radius,
+          color: "#6f9fc8",
+          weight: 2,
+          opacity: 0.92,
+          dashArray: "7 6",
+          fillColor: "#6f9fc8",
+          fillOpacity: 0.055
+        });
+        circle.bindTooltip(
+          '<strong>' + escapeHtml(h.company) + '</strong><br/>' +
+          'PERKIRAAN LUAS IZIN · ' + escapeHtml(formatAreaHa(h.areaHa)) + '<br/>' +
+          '<span style="color:#9a968e">bukan batas legal · center: ' + escapeHtml(center.precision || 'approximate') + '</span>',
+          { sticky: true, opacity: 0.96 }
+        );
+        circle.on("click", function () { showLandHolding(h); });
+        estimatedLandLayer.addLayer(circle);
+      });
     }
 
     function refreshConcessionMarkers() {
@@ -1412,6 +1949,10 @@
     document.getElementById("mobile-close-inspector").addEventListener("click", closeMobileInspector);
 
     /* ---------- Events ---------- */
+    document.getElementById("f-region").addEventListener("change", function (e) {
+      selectRegion(e.target.value, currentDate());
+    });
+
     elList.addEventListener("click", function (e) {
       var li = e.target.closest("li[data-id]");
       if (!li) return;
@@ -1429,6 +1970,7 @@
         if (id === "f-platform") state.platform = e.target.value;
         renderList();
         refreshConcessionMarkers();
+        refreshConcessionInventoryLayer();
         refreshFirmsLayer();
         if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
       });
@@ -1437,6 +1979,9 @@
     document.getElementById("tog-regions").addEventListener("change", function (e) {
       state.showRegions = !!e.target.checked;
       refreshConcessionMarkers();
+    });
+    document.getElementById("tog-inventory").addEventListener("change", function () {
+      refreshConcessionInventoryLayer();
     });
     document.getElementById("tog-centroids").addEventListener("change", function (e) {
       state.showCentroids = !!e.target.checked;
@@ -1450,12 +1995,9 @@
       if (state.mode === "graph") drawGraph(state.selectedType === "company" ? state.selectedId : null);
     });
 
-    elTime.min = 0;
-    elTime.max = Math.max(0, dates.length - 1);
-    elTime.value = state.dateIdx;
     elTime.addEventListener("input", function (e) {
       state.dateIdx = parseInt(e.target.value, 10) || 0;
-      refreshFirmsLayer();
+      loadSelectedDate();
     });
 
     window.addEventListener("resize", function () {
@@ -1467,9 +2009,10 @@
     });
 
     /* ---------- Init ---------- */
-    renderList();
-    refreshConcessionMarkers();
-    refreshFirmsLayer();
+    populateRegionSelector();
+    configureDates("indonesia", null);
+    updateProvinceOptions("indonesia");
+    selectRegion("indonesia", currentDate());
 
     } // end boot()
   })();

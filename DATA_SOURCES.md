@@ -38,6 +38,19 @@ This document describes third-party datasets and citations used by MERATUS. It d
 | Licensing / terms | GFW data policy — https://www.globalforestwatch.org/terms-of-use |
 | Caveats | Broad inventory layer; not the same as WALHI investigative overlay claims |
 
+## OpenFreeMap (basemap)
+
+| Field | Value |
+| --- | --- |
+| Source | OpenFreeMap |
+| URL | https://openfreemap.org/ |
+| Style | https://tiles.openfreemap.org/styles/dark (Dark Matter fork) |
+| Role in MERATUS | Dark vector basemap for the Leaflet dashboard (via MapLibre GL + maplibre-gl-leaflet) |
+| Retrieval | CDN-hosted style JSON and vector tiles; no API key |
+| Quality label | OpenStreetMap-derived cartography |
+| Licensing / terms | OpenFreeMap terms — https://openfreemap.org/ ; OpenStreetMap © contributors |
+| Caveats | Vector tiles require WebGL; attribution must remain visible in the map UI |
+
 ## Natural Earth
 
 | Field | Value |

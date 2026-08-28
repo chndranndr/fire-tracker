@@ -364,8 +364,22 @@ def build_patched_index(source: str) -> str:
 
     text = replace_once(
         text,
-        '    var map = L.map("map", { zoomControl: true, attributionControl: true }).setView([-1.5, 114.5], 6);',
-        '    var map = L.map("map", { zoomControl: true, attributionControl: true }).setView([-2.5, 118], 5);',
+        '''    var map = L.map("map", {
+      zoomControl: true,
+      attributionControl: true,
+      minZoom: 1,
+      maxZoom: 18,
+      maxBounds: [[-85.0511, -180], [85.0511, 180]],
+      maxBoundsViscosity: 1
+    }).setView([-1.5, 114.5], 6);''',
+        '''    var map = L.map("map", {
+      zoomControl: true,
+      attributionControl: true,
+      minZoom: 1,
+      maxZoom: 18,
+      maxBounds: [[-85.0511, -180], [85.0511, 180]],
+      maxBoundsViscosity: 1
+    }).setView([-2.5, 118], 5);''',
         "national map viewport",
     )
     text = replace_once(
