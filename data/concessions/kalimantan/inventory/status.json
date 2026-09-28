@@ -1,1 +1,1 @@
-{"coverageId":"kalimantan","parentCoverageId":"indonesia","pipelineVersion":"2","pipelineStatus":"healthy","lastSuccessfulSync":"2026-09-21T08:11:27Z","count":3053,"optionalErrors":[]}
+{"coverageId":"kalimantan","parentCoverageId":"indonesia","pipelineVersion":"2","pipelineStatus":"partial","lastSuccessfulSync":"2026-09-28T08:56:32Z","count":3053,"optionalErrors":["gfw-oil-palm: HTTP Error 503: Service Unavailable"]}
