@@ -1693,33 +1693,795 @@ def build_concession_inspector_model(
     }
 
 
-def generate_v2_Foundation_artifacts(root: Path = ROOT, check_only: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+REGION_ORDER = (
+    "sumatra",
+    "jawa",
+    "kalimantan",
+    "sulawesi",
+    "bali-nusra",
+    "maluku",
+    "papua",
+)
+
+
+def _empty_day_bucket() -> dict[str, Any]:
+    return {
+        "count": 0,
+        "sameTodCount": 0,
+        "byPlatform": {},
+        "byConfidence": {},
+        "byPlatformConfidence": {},
+        "oldestUtc": None,
+        "newestUtc": None,
+        "newestTime": None,
+        "completeness": "complete",
+    }
+
+
+def _accumulate_point_into_bucket(
+    bucket: dict[str, Any],
+    pt: dict[str, Any],
+    local_time_hhmm: str,
+    tod_cutoff_hhmm: str,
+    utc_iso: str,
+) -> None:
+    bucket["count"] += 1
+    if local_time_hhmm <= tod_cutoff_hhmm:
+        bucket["sameTodCount"] += 1
+    plat = str(pt.get("platform") or "UNKNOWN")
+    conf = str(pt.get("conf") or "nominal")
+    bucket["byPlatform"][plat] = bucket["byPlatform"].get(plat, 0) + 1
+    bucket["byConfidence"][conf] = bucket["byConfidence"].get(conf, 0) + 1
+    pc_key = f"{plat}|{conf}"
+    bucket["byPlatformConfidence"][pc_key] = bucket["byPlatformConfidence"].get(pc_key, 0) + 1
+    if bucket["oldestUtc"] is None or utc_iso < bucket["oldestUtc"]:
+        bucket["oldestUtc"] = utc_iso
+    if bucket["newestUtc"] is None or utc_iso > bucket["newestUtc"]:
+        bucket["newestUtc"] = utc_iso
+    if bucket["newestTime"] is None or local_time_hhmm > bucket["newestTime"]:
+        bucket["newestTime"] = local_time_hhmm
+
+
+def build_hotspot_daily_history(
+    root: Path = ROOT,
+    existing_history: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build durable per-day national and regional FIRMS history in UTC and WIB (#16, #17).
+
+    - Deduplicates observations by observationId = platform|date|time|lat|lon across runs
+      without collapsing distinct satellite passes (S-NPP, NOAA-20, NOAA-21).
+    - Preserves historical daily aggregates from existing `data/hotspots/history.json`
+      when older dates age out of the rolling 5-day NRT shard window.
+    - Tracks lastAttemptedSync, lastSuccessfulSync, newestDetectionUtc, oldestDetectionUtc,
+      processing version, validation status, and per-day completeness.
+    """
+    shard_root = root / "data" / "hotspots"
+    manifest = read_json(shard_root / "manifest.json", {})
+    status = read_json(shard_root / "status.json", {})
+    if existing_history is None:
+        existing_history = read_json(shard_root / "history.json", {})
+
+    m_meta = manifest.get("meta") or {}
+    firms_eval = evaluate_firms_freshness(m_meta, status)
+
+    # Collect and deduplicate all observations across region×date shards
+    dedup_points: dict[str, dict[str, Any]] = {}
+    for rid in REGION_ORDER:
+        reg_dir = shard_root / rid
+        if not reg_dir.exists():
+            continue
+        for shard_file in sorted(reg_dir.glob("*.json")):
+            shard_payload = read_json(shard_file, {})
+            for raw_pt in shard_payload.get("points") or []:
+                if not isinstance(raw_pt, dict) or not raw_pt.get("date"):
+                    continue
+                plat = str(raw_pt.get("platform") or "S-NPP")
+                dt_str = str(raw_pt["date"])
+                tm_str = str(raw_pt.get("time") or "0000").zfill(4)
+                lat_f = float(raw_pt.get("lat") or 0.0)
+                lon_f = float(raw_pt.get("lon") or 0.0)
+                oid = str(
+                    raw_pt.get("observationId")
+                    or f"{plat}|{dt_str}|{tm_str}|{lat_f:.5f}|{lon_f:.5f}"
+                )
+                pt_copy = dict(raw_pt)
+                pt_copy["observationId"] = oid
+                pt_copy["region"] = str(raw_pt.get("region") or rid)
+                pt_copy["time"] = tm_str
+                dedup_points[oid] = pt_copy
+
+    all_points = list(dedup_points.values())
+
+    # Determine newest UTC date and its time-of-day cutoff for same-time-of-day comparison (#17)
+    utc_dates_present = sorted({str(p["date"]) for p in all_points})
+    latest_utc_date = utc_dates_present[-1] if utc_dates_present else ""
+    latest_utc_tod = max(
+        (str(p["time"]) for p in all_points if p["date"] == latest_utc_date),
+        default="2359",
+    )
+
+    wib_converted = {
+        p["observationId"]: convert_utc_to_wib(str(p["date"]), str(p["time"]))
+        for p in all_points
+    }
+    wib_dates_present = sorted({w["wibDate"] for w in wib_converted.values()})
+    latest_wib_date = wib_dates_present[-1] if wib_dates_present else ""
+    latest_wib_tod = max(
+        (
+            w["wibTime"].replace(":", "")
+            for w in wib_converted.values()
+            if w["wibDate"] == latest_wib_date
+        ),
+        default="2359",
+    )
+
+    utc_daily_map: dict[str, dict[str, Any]] = {}
+    wib_daily_map: dict[str, dict[str, Any]] = {}
+
+    # Seed from existing durable history for dates no longer present in raw shards (#16)
+    if isinstance(existing_history, dict):
+        for prev_day in existing_history.get("utcDaily") or []:
+            if isinstance(prev_day, dict) and prev_day.get("date") and prev_day["date"] not in utc_dates_present:
+                utc_daily_map[str(prev_day["date"])] = prev_day
+        for prev_day in existing_history.get("wibDaily") or []:
+            if isinstance(prev_day, dict) and prev_day.get("date") and prev_day["date"] not in wib_dates_present:
+                wib_daily_map[str(prev_day["date"])] = prev_day
+
+    for d_str in utc_dates_present:
+        utc_daily_map[d_str] = {
+            "date": d_str,
+            "timezone": "UTC",
+            "todCutoff": latest_utc_tod,
+            "completeness": (
+                "partial"
+                if (d_str == latest_utc_date and latest_utc_tod < "2100")
+                else "complete"
+            ),
+            "validationStatus": "validated",
+            "extractedAtUtc": firms_eval["lastSuccessfulSync"],
+            "pipelineVersion": str(m_meta.get("pipelineVersion") or "4"),
+            "national": _empty_day_bucket(),
+            "regions": {rid: _empty_day_bucket() for rid in REGION_ORDER},
+        }
+
+    for idx_w, d_str in enumerate(wib_dates_present):
+        # First WIB date starting after 00:00 WIB or last WIB date ending before 21:00 WIB is partial
+        is_edge_partial = (idx_w == 0 or idx_w == len(wib_dates_present) - 1)
+        wib_daily_map[d_str] = {
+            "date": d_str,
+            "timezone": "Asia/Jakarta",
+            "todCutoff": latest_wib_tod,
+            "completeness": "partial" if is_edge_partial else "complete",
+            "validationStatus": "validated",
+            "extractedAtUtc": firms_eval["lastSuccessfulSync"],
+            "pipelineVersion": str(m_meta.get("pipelineVersion") or "4"),
+            "national": _empty_day_bucket(),
+            "regions": {rid: _empty_day_bucket() for rid in REGION_ORDER},
+        }
+
+    for pt in all_points:
+        rid = pt["region"]
+        if rid not in REGION_ORDER:
+            continue
+        w_info = wib_converted[pt["observationId"]]
+        utc_iso = w_info["utcIso"]
+
+        # 1. UTC aggregation
+        u_entry = utc_daily_map[str(pt["date"])]
+        _accumulate_point_into_bucket(
+            u_entry["national"], pt, str(pt["time"]), latest_utc_tod, utc_iso
+        )
+        _accumulate_point_into_bucket(
+            u_entry["regions"][rid], pt, str(pt["time"]), latest_utc_tod, utc_iso
+        )
+        u_entry["national"]["completeness"] = u_entry["completeness"]
+        u_entry["regions"][rid]["completeness"] = u_entry["completeness"]
+
+        # 2. WIB (Asia/Jakarta, UTC+7) aggregation
+        w_date = w_info["wibDate"]
+        w_hhmm = w_info["wibTime"].replace(":", "")
+        w_entry = wib_daily_map[w_date]
+        _accumulate_point_into_bucket(
+            w_entry["national"], pt, w_hhmm, latest_wib_tod, utc_iso
+        )
+        _accumulate_point_into_bucket(
+            w_entry["regions"][rid], pt, w_hhmm, latest_wib_tod, utc_iso
+        )
+        w_entry["national"]["completeness"] = w_entry["completeness"]
+        w_entry["regions"][rid]["completeness"] = w_entry["completeness"]
+
+    utc_daily_sorted = [utc_daily_map[k] for k in sorted(utc_daily_map)]
+    wib_daily_sorted = [wib_daily_map[k] for k in sorted(wib_daily_map)]
+
+    # Verify disjoint regional bucket invariant: national == sum(regions)
+    for series in (utc_daily_sorted, wib_daily_sorted):
+        for day_item in series:
+            reg_sum = sum(day_item["regions"][r]["count"] for r in REGION_ORDER)
+            if day_item["national"]["count"] != reg_sum:
+                raise ValueError(
+                    f"National count {day_item['national']['count']} != sum of disjoint regions {reg_sum} on {day_item['date']}"
+                )
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "coverageId": "indonesia",
+        "sourceId": "firms-hotspots",
+        "source": "NASA FIRMS NRT VIIRS",
+        "product": "VIIRS Active Fire (S-NPP, NOAA-20, NOAA-21)",
+        "pipelineVersion": str(m_meta.get("pipelineVersion") or "4"),
+        "observationIdentitySpec": "platform|acq_date|acq_time_hhmm|lat_5dp|lon_5dp (distinct satellite passes are never collapsed into one hypothetical fire event)",
+        "runtimeVsGitNote": (
+            "Scheduled GitHub Actions (firms-nrt.yml) runs hourly and publishes refreshed shards to GitHub Pages "
+            "artifacts without committing hourly churn to main; checked-in Git snapshots represent the offline baseline."
+        ),
+        "freshness": {
+            "state": firms_eval["state"],
+            "lastAttemptedSync": firms_eval["lastAttemptedSync"],
+            "lastSuccessfulSync": firms_eval["lastSuccessfulSync"],
+            "newestDetectionUtc": firms_eval["newestDetectionUtc"],
+            "oldestDetectionUtc": firms_eval["oldestDetectionUtc"],
+            "pipelineStatus": str(status.get("pipelineStatus") or "healthy"),
+            "stale": firms_eval["state"] == "stale",
+            "lastKnownGood": firms_eval["lastKnownGood"],
+            "reason": firms_eval["reason"],
+        },
+        "platforms": list(m_meta.get("platforms") or ["S-NPP", "NOAA-20", "NOAA-21"]),
+        "confidenceLevels": ["high", "nominal", "low"],
+        "regions": list(REGION_ORDER),
+        "totalValidatedObservations": len(all_points),
+        "utcTodCutoff": latest_utc_tod,
+        "wibTodCutoff": latest_wib_tod,
+        "utcDaily": utc_daily_sorted,
+        "wibDaily": wib_daily_sorted,
+    }
+
+
+def _extract_filtered_bucket_count(
+    bucket: dict[str, Any],
+    platform: str = "",
+    conf: str = "",
+    use_same_tod: bool = False,
+) -> int:
+    if not bucket:
+        return 0
+    if use_same_tod and not platform and not conf:
+        return int(bucket.get("sameTodCount") or 0)
+    plat = str(platform or "").strip().upper()
+    cf = str(conf or "").strip().lower()
+    if plat and cf:
+        return int((bucket.get("byPlatformConfidence") or {}).get(f"{plat}|{cf}") or 0)
+    if plat:
+        return int((bucket.get("byPlatform") or {}).get(plat) or 0)
+    if cf:
+        return int((bucket.get("byConfidence") or {}).get(cf) or 0)
+    return int(bucket.get("count") or 0)
+
+
+def compute_delta_metrics(current_val: int | float | None, previous_val: int | float | None) -> dict[str, Any]:
+    """Compute absolute and relative delta with explicit zero/missing denominator handling (#17)."""
+    if current_val is None or previous_val is None:
+        return {
+            "current": current_val,
+            "previous": previous_val,
+            "deltaAbs": None,
+            "deltaPct": None,
+            "denominatorZero": False,
+            "comparable": False,
+            "reason": "missing_comparison_period",
+        }
+    delta_abs = current_val - previous_val
+    if previous_val == 0:
+        return {
+            "current": current_val,
+            "previous": previous_val,
+            "deltaAbs": delta_abs,
+            "deltaPct": None,
+            "denominatorZero": True,
+            "comparable": True,
+            "reason": "denominator_zero",
+        }
+    delta_pct = round((delta_abs / float(previous_val)) * 100.0, 2)
+    return {
+        "current": current_val,
+        "previous": previous_val,
+        "deltaAbs": delta_abs,
+        "deltaPct": delta_pct,
+        "denominatorZero": False,
+        "comparable": True,
+        "reason": "ok",
+    }
+
+
+def compute_hotspot_trends_and_deltas(
+    history_payload: dict[str, Any],
+    region: str = "indonesia",
+    prov: str = "",
+    kab: str = "",
+    window: str = "all",
+    timezone_mode: str = "UTC",
+    platform: str = "",
+    conf: str = "",
+) -> dict[str, Any]:
+    """Compute daily hotspot trends, complete-day deltas, same-TOD comparison, and geographic breakdowns (#17).
+
+    Never infers burned area (ha) or distinct fire counts from detection counts.
+    Never substitutes island totals when province or kabupaten filters are active.
+    """
+    tz_label = "Asia/Jakarta" if str(timezone_mode).upper() in ("WIB", "ASIA/JAKARTA") else "UTC"
+    if prov or kab:
+        return {
+            "state": "unavailable",
+            "reason": (
+                "Shard observasi NASA FIRMS dikelompokkan per 7 wilayah logis (pulau/kepulauan) tanpa poligon "
+                "batas provinsi/kabupaten. MERATUS tidak pernah mensubstitusi total pulau untuk filter sub-pulau."
+            ),
+            "timezone": tz_label,
+            "scopeId": kab or prov,
+            "points": [],
+            "completeDayOverDay": None,
+            "sameTimeOfDayComparison": None,
+            "windowSummary": {
+                "requestedWindow": window,
+                "completeness": "unavailable",
+                "total": None,
+                "delta": None,
+            },
+        }
+
+    raw_series = (
+        history_payload.get("wibDaily")
+        if tz_label == "Asia/Jakarta"
+        else history_payload.get("utcDaily")
+    ) or []
+
+    by_date = {str(item["date"]): item for item in raw_series if isinstance(item, dict) and item.get("date")}
+    sorted_dates = sorted(by_date.keys())
+    if not sorted_dates:
+        return {
+            "state": "unavailable",
+            "reason": "Tidak ada riwayat harian FIRMS yang tersedia.",
+            "timezone": tz_label,
+            "scopeId": region,
+            "points": [],
+            "completeDayOverDay": None,
+            "sameTimeOfDayComparison": None,
+            "windowSummary": {
+                "requestedWindow": window,
+                "completeness": "unavailable",
+                "total": None,
+                "delta": None,
+            },
+        }
+
+    # Expand continuous calendar dates between min and max so missing days become explicit gaps (never fake 0s)
+    start_dt = datetime.strptime(sorted_dates[0], "%Y-%m-%d").date()
+    end_dt = datetime.strptime(sorted_dates[-1], "%Y-%m-%d").date()
+    continuous_points: list[dict[str, Any]] = []
+    cursor = start_dt
+    while cursor <= end_dt:
+        d_str = cursor.isoformat()
+        day_obj = by_date.get(d_str)
+        if day_obj is None:
+            continuous_points.append(
+                {
+                    "date": d_str,
+                    "observedAt": d_str,
+                    "validFrom": f"{d_str}T00:00:00",
+                    "validTo": f"{d_str}T23:59:59",
+                    "value": None,
+                    "sameTodValue": None,
+                    "status": "gap",
+                    "completeness": "unavailable",
+                }
+            )
+        else:
+            bucket = (
+                day_obj.get("national")
+                if region == "indonesia"
+                else (day_obj.get("regions") or {}).get(region)
+            ) or _empty_day_bucket()
+            val = _extract_filtered_bucket_count(bucket, platform=platform, conf=conf, use_same_tod=False)
+            tod_val = _extract_filtered_bucket_count(bucket, platform=platform, conf=conf, use_same_tod=True)
+            comp = str(day_obj.get("completeness") or "complete")
+            continuous_points.append(
+                {
+                    "date": d_str,
+                    "observedAt": bucket.get("newestUtc") or d_str,
+                    "validFrom": f"{d_str}T00:00:00",
+                    "validTo": f"{d_str}T{str(day_obj.get('todCutoff') or '2359')[:2]}:{str(day_obj.get('todCutoff') or '2359')[2:4]}:00" if comp == "partial" else f"{d_str}T23:59:59",
+                    "value": val,
+                    "sameTodValue": tod_val,
+                    "status": comp,
+                    "completeness": comp,
+                    "newestTime": bucket.get("newestTime"),
+                }
+            )
+        cursor = datetime.fromordinal(cursor.toordinal() + 1).date()
+
+    # Compute day-over-day delta on each point (only when both consecutive days are complete)
+    for idx, pt in enumerate(continuous_points):
+        if idx == 0 or pt["status"] == "gap" or continuous_points[idx - 1]["status"] == "gap":
+            pt["deltaAbs"] = None
+            pt["deltaPct"] = None
+            pt["deltaComparable"] = False
+        elif pt["status"] == "complete" and continuous_points[idx - 1]["status"] == "complete":
+            dm = compute_delta_metrics(pt["value"], continuous_points[idx - 1]["value"])
+            pt["deltaAbs"] = dm["deltaAbs"]
+            pt["deltaPct"] = dm["deltaPct"]
+            pt["deltaComparable"] = dm["comparable"]
+        else:
+            # Partial day vs complete day: full-day delta is NOT comparable; expose same-TOD delta instead
+            pt["deltaAbs"] = None
+            pt["deltaPct"] = None
+            pt["deltaComparable"] = False
+
+    # 1. Most recent complete day-over-day comparison (#17 acceptance criterion 1)
+    complete_days = [p for p in continuous_points if p["status"] == "complete" and p["value"] is not None]
+    complete_dod = None
+    if len(complete_days) >= 2:
+        curr_c = complete_days[-1]
+        prev_c = complete_days[-2]
+        complete_dod = {
+            "currentDate": curr_c["date"],
+            "previousDate": prev_c["date"],
+            **compute_delta_metrics(curr_c["value"], prev_c["value"]),
+        }
+
+    # 2. Same-time-of-day (TOD) comparison for the latest day when partial (#17 step 4)
+    same_tod_comp = None
+    if len(continuous_points) >= 2:
+        latest_pt = continuous_points[-1]
+        prev_pt = continuous_points[-2]
+        if (
+            latest_pt["status"] != "gap"
+            and prev_pt["status"] != "gap"
+            and not platform
+            and not conf
+        ):
+            cutoff = (
+                history_payload.get("wibTodCutoff")
+                if tz_label == "Asia/Jakarta"
+                else history_payload.get("utcTodCutoff")
+            ) or "2359"
+            same_tod_comp = {
+                "currentDate": latest_pt["date"],
+                "previousDate": prev_pt["date"],
+                "cutoffTime": f"{str(cutoff)[:2]}:{str(cutoff)[2:4]} {tz_label}",
+                "latestDayStatus": latest_pt["status"],
+                **compute_delta_metrics(latest_pt["sameTodValue"], prev_pt["sameTodValue"]),
+            }
+
+    # 3. Window slice (1d, 4d, 7d, 30d, 90d, all) with explicit completeness
+    req_days_map = {"1d": 1, "24h": 1, "4d": 4, "7d": 7, "30d": 30, "90d": 90}
+    req_days = req_days_map.get(str(window).lower())
+    observed_valid = [p for p in continuous_points if p["status"] != "gap" and p["value"] is not None]
+
+    if req_days is None:
+        window_points = continuous_points
+        window_complete = all(p["status"] == "complete" for p in continuous_points)
+        win_status = "complete" if window_complete else "partial"
+        win_delta = None
+    else:
+        window_points = continuous_points[-req_days:]
+        has_enough_days = len(continuous_points) >= req_days and all(
+            p["status"] != "gap" for p in window_points
+        )
+        all_complete_in_win = has_enough_days and all(
+            p["status"] == "complete" for p in window_points
+        )
+        win_status = "complete" if all_complete_in_win else "partial"
+        win_delta = None
+        if len(continuous_points) >= req_days * 2:
+            prev_win_points = continuous_points[-req_days * 2 : -req_days]
+            if all(p["status"] == "complete" for p in window_points) and all(
+                p["status"] == "complete" for p in prev_win_points
+            ):
+                curr_sum = sum(int(p["value"] or 0) for p in window_points)
+                prev_sum = sum(int(p["value"] or 0) for p in prev_win_points)
+                win_delta = compute_delta_metrics(curr_sum, prev_sum)
+            else:
+                win_delta = {
+                    "current": sum(int(p["value"] or 0) for p in window_points if p["value"] is not None),
+                    "previous": None,
+                    "deltaAbs": None,
+                    "deltaPct": None,
+                    "denominatorZero": False,
+                    "comparable": False,
+                    "reason": "incomplete_comparison_window",
+                }
+        else:
+            win_delta = {
+                "current": sum(int(p["value"] or 0) for p in window_points if p["value"] is not None),
+                "previous": None,
+                "deltaAbs": None,
+                "deltaPct": None,
+                "denominatorZero": False,
+                "comparable": False,
+                "reason": f"archive_has_{len(observed_valid)}_days_need_{req_days * 2}_for_period_delta",
+            }
+
+    win_total = sum(int(p["value"] or 0) for p in window_points if p["value"] is not None)
+
+    return {
+        "state": (history_payload.get("freshness") or {}).get("state") or "fresh",
+        "reason": (history_payload.get("freshness") or {}).get("reason") or "ok",
+        "timezone": tz_label,
+        "scopeId": region,
+        "platformFilter": platform or "ALL",
+        "confidenceFilter": conf or "ALL",
+        "points": window_points,
+        "allPoints": continuous_points,
+        "completeDayOverDay": complete_dod,
+        "sameTimeOfDayComparison": same_tod_comp,
+        "windowSummary": {
+            "requestedWindow": window,
+            "requestedDays": req_days,
+            "availableDays": len(observed_valid),
+            "completeness": win_status,
+            "total": win_total,
+            "delta": win_delta,
+        },
+    }
+
+
+def validate_time_series_contract(series: dict[str, Any]) -> None:
+    """Validate reusable time-series chart contract for truthful source frequency (#18).
+
+    Enforces:
+    - Valid granularity ('hour', 'day', 'week', 'month')
+    - Valid aggregationMode ('incremental', 'cumulative')
+    - Weekly/monthly series are NEVER interpolated into daily points
+    - Unavailable series or gap intervals have value=None (never fake 0s)
+    """
+    if not isinstance(series, dict):
+        raise ValueError("time-series contract must be a dict")
+    for req in ("seriesId", "metricId", "title", "sourceId", "sourceName", "units", "granularity", "aggregationMode"):
+        if not isinstance(series.get(req), str) or not series[req].strip():
+            raise ValueError(f"time-series missing required string '{req}'")
+
+    gran = series["granularity"]
+    if gran not in ("hour", "day", "week", "month"):
+        raise ValueError(f"unsupported time-series granularity: {gran}")
+    if series["aggregationMode"] not in ("incremental", "cumulative"):
+        raise ValueError(f"unsupported aggregationMode: {series['aggregationMode']}")
+
+    cov = series.get("coverage")
+    if not isinstance(cov, dict) or cov.get("completeness") not in ("complete", "partial", "unavailable", "stale"):
+        raise ValueError("time-series coverage.completeness must be complete, partial, unavailable, or stale")
+
+    points = series.get("points")
+    if not isinstance(points, list):
+        raise ValueError("time-series points must be a list")
+
+    if cov["completeness"] == "unavailable" and any(p.get("value") is not None for p in points):
+        raise ValueError("unavailable time-series must not contain non-null point values")
+
+    for idx, pt in enumerate(points):
+        if not isinstance(pt, dict):
+            raise ValueError("each time-series point must be a dict")
+        st = pt.get("status")
+        if st not in ("complete", "partial", "gap"):
+            raise ValueError(f"invalid point status: {st}")
+        if st == "gap" and pt.get("value") is not None:
+            raise ValueError("missing interval ('gap') must have value=None, never 0")
+        if gran == "week" and pt.get("validFrom") and pt.get("validTo"):
+            vf = str(pt["validFrom"])[:10]
+            vt = str(pt["validTo"])[:10]
+            if vf == vt:
+                raise ValueError(
+                    "weekly time-series point has single-day validFrom==validTo (weekly series must not be interpolated into daily points)"
+                )
+
+
+def build_typed_time_series(
+    metric_id: str,
+    history_payload: dict[str, Any],
+    region: str = "indonesia",
+    prov: str = "",
+    kab: str = "",
+    window: str = "all",
+    timezone_mode: str = "UTC",
+    aggregation_mode: str = "incremental",
+    platform: str = "",
+    conf: str = "",
+) -> dict[str, Any]:
+    """Build a typed time-series envelope for the reusable chart component (#18)."""
+    agg_mode = "cumulative" if str(aggregation_mode).lower() == "cumulative" else "incremental"
+
+    if metric_id == "firms-hotspots":
+        analytics = compute_hotspot_trends_and_deltas(
+            history_payload=history_payload,
+            region=region,
+            prov=prov,
+            kab=kab,
+            window=window,
+            timezone_mode=timezone_mode,
+            platform=platform,
+            conf=conf,
+        )
+        if analytics["state"] == "unavailable":
+            series = {
+                "seriesId": f"firms-hotspots:{region}:{prov}:{kab}:{window}",
+                "metricId": "firms-hotspots",
+                "title": "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
+                "sourceId": "firms-hotspots",
+                "sourceName": "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+                "sourceUrl": "https://firms.modaps.eosdis.nasa.gov/api/area/",
+                "units": "detections",
+                "granularity": "day",
+                "aggregationMode": agg_mode,
+                "timezone": analytics["timezone"],
+                "updatedAt": (history_payload.get("freshness") or {}).get("lastSuccessfulSync"),
+                "newestObservationAt": (history_payload.get("freshness") or {}).get("newestDetectionUtc"),
+                "coverage": {
+                    "scopeId": analytics["scopeId"],
+                    "requestedWindow": window,
+                    "completeness": "unavailable",
+                    "reason": analytics["reason"],
+                },
+                "points": [],
+            }
+            validate_time_series_contract(series)
+            return series
+
+        running_sum = 0
+        typed_points: list[dict[str, Any]] = []
+        for p in analytics["points"]:
+            if p["status"] == "gap" or p["value"] is None:
+                typed_points.append(
+                    {
+                        "label": p["date"],
+                        "observedAt": p["observedAt"],
+                        "validFrom": p["validFrom"],
+                        "validTo": p["validTo"],
+                        "value": None,
+                        "incrementalValue": None,
+                        "sameTodValue": None,
+                        "status": "gap",
+                        "deltaAbs": None,
+                        "deltaPct": None,
+                    }
+                )
+            else:
+                running_sum += int(p["value"])
+                typed_points.append(
+                    {
+                        "label": p["date"],
+                        "observedAt": p["observedAt"],
+                        "validFrom": p["validFrom"],
+                        "validTo": p["validTo"],
+                        "value": running_sum if agg_mode == "cumulative" else int(p["value"]),
+                        "incrementalValue": int(p["value"]),
+                        "sameTodValue": p.get("sameTodValue"),
+                        "status": p["status"],
+                        "deltaAbs": p.get("deltaAbs"),
+                        "deltaPct": p.get("deltaPct"),
+                    }
+                )
+
+        series = {
+            "seriesId": f"firms-hotspots:{region}:{window}:{analytics['timezone']}:{agg_mode}",
+            "metricId": "firms-hotspots",
+            "title": (
+                "Kumulatif Deteksi Panas Satelit (NASA FIRMS VIIRS)"
+                if agg_mode == "cumulative"
+                else "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)"
+            ),
+            "sourceId": "firms-hotspots",
+            "sourceName": "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+            "sourceUrl": "https://firms.modaps.eosdis.nasa.gov/api/area/",
+            "units": "detections",
+            "granularity": "day",
+            "aggregationMode": agg_mode,
+            "timezone": analytics["timezone"],
+            "updatedAt": (history_payload.get("freshness") or {}).get("lastSuccessfulSync"),
+            "newestObservationAt": (history_payload.get("freshness") or {}).get("newestDetectionUtc"),
+            "coverage": {
+                "scopeId": analytics["scopeId"],
+                "requestedWindow": window,
+                "availableDays": analytics["windowSummary"]["availableDays"],
+                "completeness": analytics["windowSummary"]["completeness"],
+                "reason": analytics["reason"],
+            },
+            "completeDayOverDay": analytics["completeDayOverDay"],
+            "sameTimeOfDayComparison": analytics["sameTimeOfDayComparison"],
+            "windowSummary": analytics["windowSummary"],
+            "points": typed_points,
+        }
+        validate_time_series_contract(series)
+        return series
+
+    # Other 3 environmental/health series (#18): truthful frequency & explicit unavailable state until P1/P2 ingest
+    catalog_specs = {
+        "burned-area": {
+            "title": "Estimasi Luas Area Terbakar Harian (Burned Area)",
+            "sourceName": "Produk Burned Area Independen (Pending #20)",
+            "sourceUrl": "https://gwis.jrc.ec.europa.eu/",
+            "units": "ha",
+            "granularity": "day",
+            "reason": "Produk poligon/raster area terbakar independen (#20/#21) belum di-ingest. Titik panas FIRMS tidak pernah dikonversi menjadi hektar terbakar.",
+        },
+        "air-quality-pm25": {
+            "title": "Konsentrasi PM2.5 Berbasis Stasiun (ISPU / OpenAQ)",
+            "sourceName": "Stasiun Kualitas Udara ISPU/KLHK & OpenAQ (Pending #22)",
+            "sourceUrl": "https://ispu.menlhk.go.id/",
+            "units": "µg/m³",
+            "granularity": "hour",
+            "reason": "Observasi PM2.5 berbasis stasiun (#22/#23) belum di-ingest. Kualitas udara terikat pada titik stasiun pengukuran, bukan rata-rata pulau.",
+        },
+        "kemenkes-ispa": {
+            "title": "Laporan Kasus ISPA Mingguan (Surveilans Kesehatan)",
+            "sourceName": "Surveilans ISPA Kemenkes/Dinkes (Pending #26)",
+            "sourceUrl": "https://skdr.surveilans.org/",
+            "units": "cases",
+            "granularity": "week",
+            "reason": "Data surveilans ISPA mingguan/bulanan (#26/#27) belum di-ingest. Frekuensi mingguan asli sumber dipertahankan tanpa interpolasi kurva harian.",
+        },
+    }
+    spec = catalog_specs.get(metric_id, catalog_specs["burned-area"])
+    series = {
+        "seriesId": f"{metric_id}:{region}:{window}:{agg_mode}",
+        "metricId": metric_id,
+        "title": spec["title"],
+        "sourceId": metric_id,
+        "sourceName": spec["sourceName"],
+        "sourceUrl": spec["sourceUrl"],
+        "units": spec["units"],
+        "granularity": spec["granularity"],
+        "aggregationMode": agg_mode,
+        "timezone": "UTC",
+        "updatedAt": None,
+        "newestObservationAt": None,
+        "coverage": {
+            "scopeId": kab or prov or region,
+            "requestedWindow": window,
+            "completeness": "unavailable",
+            "reason": spec["reason"],
+        },
+        "points": [],
+    }
+    validate_time_series_contract(series)
+    return series
+
+
+def generate_v2_Foundation_artifacts(
+    root: Path = ROOT, check_only: bool = False
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     admin_index = build_admin_index(root)
     sources_manifest = build_sources_manifest(root)
+    hotspot_history = build_hotspot_daily_history(root)
     for env in sources_manifest["metrics"].values():
         validate_metric_envelope(env)
+    # Validate all 4 typed time-series contracts (#18)
+    for mid in ("firms-hotspots", "burned-area", "air-quality-pm25", "kemenkes-ispa"):
+        ts = build_typed_time_series(mid, hotspot_history, region="indonesia", window="all")
+        validate_time_series_contract(ts)
     if not check_only:
         write_json_atomic(root / "data" / "admin-index.json", admin_index)
         write_json_atomic(root / "data" / "sources-manifest.json", sources_manifest)
-    return admin_index, sources_manifest
+        write_json_atomic(root / "data" / "hotspots" / "history.json", hotspot_history)
+    return admin_index, sources_manifest, hotspot_history
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Validate without writing files")
     args = parser.parse_args()
-    admin_index, sources_manifest = generate_v2_Foundation_artifacts(ROOT, check_only=args.check)
+    admin_index, sources_manifest, hotspot_history = generate_v2_Foundation_artifacts(
+        ROOT, check_only=args.check
+    )
     kal_vm = build_region_concession_view_models("kalimantan", ROOT)
     print(
         f"v2_contracts: validated {len(sources_manifest['metrics'])} metric envelopes, "
         f"{len(admin_index['regions'])} regional admin indexes "
         f"({admin_index['nationalConcessions']['deduplicatedCount']} deduplicated concessions), "
-        f"and Kalimantan unified ConcessionViewModel ({kal_vm['stats']['totalUnifiedCount']} rows, "
-        f"{kal_vm['stats']['matchedDossierCount']} matched dossiers + "
-        f"{kal_vm['stats']['unmatchedDossierOnlyCount']} dossier-only)"
+        f"durable FIRMS history ({len(hotspot_history['utcDaily'])} UTC days / "
+        f"{len(hotspot_history['wibDaily'])} WIB days, {hotspot_history['totalValidatedObservations']} obs), "
+        f"and Kalimantan unified ConcessionViewModel ({kal_vm['stats']['totalUnifiedCount']} rows)"
     )
 
 
 if __name__ == "__main__":
     main()
+
 

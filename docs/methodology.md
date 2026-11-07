@@ -280,7 +280,8 @@ Lihat [`adr/005-build-time-frontend-composition.md`](adr/005-build-time-frontend
 | `index.html` | Template UI; dipatch saat build |
 | `data/hotspots/manifest.json` | Index nasional Detection |
 | `data/hotspots/status.json` | Status pipeline FIRMS |
-| `data/hotspots/<region>/<date>.json` | Shard Detection per region × tanggal |
+| `data/hotspots/history.json` | Riwayat harian tahan lama (UTC & WIB), kelengkapan hari (`complete`/`partial`/`gap`), dan metrik tren/delta (v2 #16, #17, #18) |
+| `data/hotspots/<region>/<date>.json` | Shard Detection per region × tanggal (dipertahankan lintas jendela NRT 5 hari secara idempoten) |
 | `data/concessions/<region>/inventory/` | Inventaris konsesi generik nasional |
 | `data/dossiers/manifest.json` | Availability dossier per region |
 | `data/dossiers/kalimantan.json` | WALHI summary, SIPONGI fallback, 12 dossier investigatif |

@@ -37,17 +37,23 @@ v2_concessions_map_patch = load_module(
     "patch_v2_concessions_map_dashboard",
     ROOT / "scripts" / "patch_v2_concessions_map_dashboard.py",
 )
+v2_analytics_ts_patch = load_module(
+    "patch_v2_analytics_timeseries_dashboard",
+    ROOT / "scripts" / "patch_v2_analytics_timeseries_dashboard.py",
+)
 
 
 class DashboardBuildTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "index.html").read_text(encoding="utf-8")
-        cls.html = v2_concessions_map_patch.build_patched_index(
-            v2_foundation_patch.build_patched_index(
-                inventory_patch.build_patched_index(
-                    region_patch.build_patched_index(
-                        land_patch.build_patched_index(source)
+        cls.html = v2_analytics_ts_patch.build_patched_index(
+            v2_concessions_map_patch.build_patched_index(
+                v2_foundation_patch.build_patched_index(
+                    inventory_patch.build_patched_index(
+                        region_patch.build_patched_index(
+                            land_patch.build_patched_index(source)
+                        )
                     )
                 )
             )
@@ -114,6 +120,20 @@ class DashboardBuildTests(unittest.TestCase):
             'function queryUnifiedConcessionViewModels(',
             'function showUnifiedConcessionDetail(',
             'Investigative dossier available',
+        ):
+            self.assertIn(marker, self.html)
+
+    def test_v2_wave3_analytics_and_timeseries_controls_present(self):
+        for marker in (
+            'id="ts-controls-bar"',
+            'id="ts-metric-select"',
+            'id="ts-agg-select"',
+            'id="ts-tz-select"',
+            'id="ts-delta-strip"',
+            'id="ts-chart-tooltip"',
+            'data/hotspots/history.json',
+            'function buildTypedTimeSeriesForView(',
+            'function renderReusableTimeSeriesChart(',
         ):
             self.assertIn(marker, self.html)
 

@@ -107,8 +107,13 @@ const context = {
 
 vm.createContext(context);
 vm.runInContext(html.slice(start, closeEnd), context);
+const wave3Start = html.indexOf("var hotspotHistory = null;");
+const wave3End = html.indexOf("hotspotHistory = hotspotHistoryPayload;", wave3Start);
+assert(wave3Start >= 0 && wave3End > wave3Start, "v2 Wave 3 JS helper block missing from index.html");
+vm.runInContext(html.slice(wave3Start, wave3End), context);
 context.adminIndex = adminIndex;
 context.sourcesManifest = sourcesManifest;
+context.hotspotHistory = JSON.parse(fs.readFileSync("data/hotspots/history.json", "utf8"));
 
 // 1. Verify BPS code & cross-border province parsing in JS
 assert.deepStrictEqual(
@@ -221,6 +226,38 @@ context.showUnifiedConcessionDetail(kidecoVm.viewModelId, "investigation");
 assert.ok(context.elInsp.innerHTML.includes('id="insp-tab-investigation"'));
 assert.ok(context.elInsp.innerHTML.includes('id="insp-pane-investigation"'));
 assert.strictEqual(context.state.search, "KIDECO", "search filter must be preserved across inspector navigation");
+
+// 7. Verify Wave 3 reusable time-series chart & delta strip (#16, #17, #18)
+context.state.region = "indonesia";
+context.state.prov = "";
+context.state.kab = "";
+context.state.tsMetric = "firms-hotspots";
+context.state.tsAggMode = "incremental";
+context.state.tsTimezone = "UTC";
+
+const tsUtc = context.buildTypedTimeSeriesForView("firms-hotspots");
+assert.strictEqual(tsUtc.metricId, "firms-hotspots");
+assert.strictEqual(tsUtc.granularity, "day");
+assert.strictEqual(tsUtc.points.length, 4);
+assert.strictEqual(tsUtc.points[3].status, "partial");
+
+const chartWrap = getEl("overview-trend-svg");
+context.renderReusableTimeSeriesChart(chartWrap, tsUtc);
+assert.ok(getEl("ts-delta-strip").innerHTML.includes("-22"), "expected complete-day DoD -22 in delta strip");
+assert.ok(getEl("ts-delta-strip").innerHTML.includes("+3.794"), "expected same-time-of-day +3.794 in delta strip");
+assert.ok(chartWrap.innerHTML.includes("PARTIAL DAY"), "expected partial-day marker on latest bar");
+
+// Switch to WIB timezone -> 5 WIB days
+context.state.tsTimezone = "Asia/Jakarta";
+const tsWib = context.buildTypedTimeSeriesForView("firms-hotspots");
+assert.strictEqual(tsWib.points.length, 5);
+assert.strictEqual(tsWib.points[4].label, "2026-08-28");
+
+// Switch to burned-area -> explicit DATA UNAVAILABLE state, never fake zeros
+context.state.tsMetric = "burned-area";
+const tsBurned = context.buildTypedTimeSeriesForView("burned-area");
+context.renderReusableTimeSeriesChart(chartWrap, tsBurned);
+assert.ok(chartWrap.innerHTML.includes("DATA UNAVAILABLE"));
 
 console.log("v2 frontend runtime tests passed");
 

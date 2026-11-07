@@ -385,6 +385,158 @@ class V2FoundationContractTests(unittest.TestCase):
         self.assertEqual(matched_insp["investigation"]["dossierId"], "kideco")
         self.assertTrue(len(matched_insp["investigation"]["sources"]) > 0)
 
+    def test_hotspot_daily_history_invariants_and_wib_timezone_shift(self):
+        history = v2.read_json(ROOT / "data" / "hotspots" / "history.json")
+        self.assertEqual(history["schemaVersion"], 1)
+        utc_daily = history["utcDaily"]
+        self.assertEqual(len(utc_daily), 4)
+        self.assertEqual(sum(d["national"]["count"] for d in utc_daily), 67478)
+
+        # Regional sum invariant: sum across 7 disjoint regions equals national count for every date
+        for day in utc_daily:
+            nat_bucket = day["national"]
+            reg_sum = sum(day["regions"][reg_id]["count"] for reg_id in history["regions"])
+            self.assertEqual(reg_sum, nat_bucket["count"])
+            # Confidence breakdown sums to daily count
+            self.assertEqual(sum(nat_bucket["byConfidence"].values()), nat_bucket["count"])
+            # Platform breakdown sums to daily count
+            self.assertEqual(sum(nat_bucket["byPlatform"].values()), nat_bucket["count"])
+
+        # UTC -> WIB timezone shift creates 5 WIB dates from 4 UTC dates and preserves total count
+        wib_daily = history["wibDaily"]
+        self.assertEqual(len(wib_daily), 5)
+        self.assertEqual(sum(d["national"]["count"] for d in wib_daily), 67478)
+        self.assertEqual(wib_daily[-1]["date"], "2026-08-28")
+        self.assertEqual(wib_daily[-1]["completeness"], "partial")
+
+        # Partial latest UTC day triggers both complete-day DoD and same-time-of-day comparison
+        trends_utc = v2.compute_hotspot_trends_and_deltas(
+            history, region="indonesia", timezone_mode="UTC"
+        )
+        self.assertIsNotNone(trends_utc["completeDayOverDay"])
+        self.assertEqual(trends_utc["completeDayOverDay"]["currentDate"], "2026-08-26")
+        self.assertEqual(trends_utc["completeDayOverDay"]["previousDate"], "2026-08-25")
+        self.assertEqual(trends_utc["completeDayOverDay"]["deltaAbs"], -22)
+        self.assertIsNotNone(trends_utc["sameTimeOfDayComparison"])
+        self.assertEqual(trends_utc["sameTimeOfDayComparison"]["cutoffTime"], "19:02 UTC")
+        self.assertEqual(trends_utc["sameTimeOfDayComparison"]["deltaAbs"], 3794)
+
+    def test_compute_delta_metrics_handles_gaps_and_zero_denominators(self):
+        # Zero denominator -> deltaPct is None and denominatorZero is True
+        delta_zero = v2.compute_delta_metrics(25, 0)
+        self.assertEqual(delta_zero["deltaAbs"], 25)
+        self.assertIsNone(delta_zero["deltaPct"])
+        self.assertTrue(delta_zero["denominatorZero"])
+        self.assertEqual(delta_zero["reason"], "denominator_zero")
+
+        # Missing comparison value -> comparable is False
+        delta_missing = v2.compute_delta_metrics(40, None)
+        self.assertFalse(delta_missing["comparable"])
+        self.assertIsNone(delta_missing["deltaAbs"])
+
+        # Synthetic history with a missing calendar day between 2026-08-21 and 2026-08-23 -> 2026-08-22 becomes an explicit gap (not 0)
+        gap_history = {
+            "freshness": {"state": "fresh", "reason": "ok"},
+            "utcTodCutoff": "2359",
+            "utcDaily": [
+                {
+                    "date": "2026-08-21",
+                    "completeness": "complete",
+                    "todCutoff": "2359",
+                    "national": {"count": 25, "sameTodCount": 25},
+                    "regions": {},
+                },
+                {
+                    "date": "2026-08-23",
+                    "completeness": "complete",
+                    "todCutoff": "2359",
+                    "national": {"count": 40, "sameTodCount": 40},
+                    "regions": {},
+                },
+            ],
+        }
+        gap_trends = v2.compute_hotspot_trends_and_deltas(gap_history, region="indonesia", timezone_mode="UTC")
+        self.assertEqual(len(gap_trends["points"]), 3)
+        self.assertEqual(gap_trends["points"][1]["date"], "2026-08-22")
+        self.assertEqual(gap_trends["points"][1]["status"], "gap")
+        self.assertIsNone(gap_trends["points"][1]["value"])
+        self.assertFalse(gap_trends["points"][2]["deltaComparable"])
+
+    def test_typed_time_series_contract_across_frequencies_and_no_interpolation_guard(self):
+        history = v2.read_json(ROOT / "data" / "hotspots" / "history.json")
+        # 1. Daily hotspot series (valid)
+        firms_ts = v2.build_typed_time_series(
+            "firms-hotspots",
+            history,
+            region="indonesia",
+            timezone_mode="UTC",
+            aggregation_mode="incremental",
+        )
+        v2.validate_time_series_contract(firms_ts)
+        self.assertEqual(firms_ts["granularity"], "day")
+        self.assertEqual(len(firms_ts["points"]), 4)
+
+        # 2. Unavailable burned-area series (valid empty points + unavailable state)
+        burned_ts = v2.build_typed_time_series(
+            "burned-area",
+            history,
+            region="indonesia",
+            timezone_mode="UTC",
+            aggregation_mode="incremental",
+        )
+        v2.validate_time_series_contract(burned_ts)
+        self.assertEqual(burned_ts["coverage"]["completeness"], "unavailable")
+        self.assertEqual(burned_ts["points"], [])
+
+        # 3. Fixture: Hourly station PM2.5 series
+        pm25_hourly_fixture = {
+            "seriesId": "air-quality-pm25:palangkaraya-01:24h",
+            "metricId": "air-quality-pm25",
+            "title": "Hourly PM2.5 Station Feed",
+            "sourceId": "air-quality-pm25",
+            "sourceName": "BMKG / KLHK ISPU",
+            "sourceUrl": "https://ispu.menlhk.go.id/",
+            "units": "µg/m³",
+            "granularity": "hour",
+            "aggregationMode": "incremental",
+            "timezone": "Asia/Jakarta",
+            "coverage": {"scopeId": "palangkaraya-01", "completeness": "complete"},
+            "points": [
+                {"label": "01:00", "validFrom": "2026-08-27T01:00:00+07:00", "validTo": "2026-08-27T01:59:59+07:00", "value": 42.5, "status": "complete"},
+                {"label": "02:00", "validFrom": "2026-08-27T02:00:00+07:00", "validTo": "2026-08-27T02:59:59+07:00", "value": None, "status": "gap"},
+                {"label": "03:00", "validFrom": "2026-08-27T03:00:00+07:00", "validTo": "2026-08-27T03:59:59+07:00", "value": 55.0, "status": "complete"},
+            ],
+        }
+        v2.validate_time_series_contract(pm25_hourly_fixture)
+
+        # 4. Fixture: Weekly Kemenkes ISPA series
+        ispa_weekly_fixture = {
+            "seriesId": "kemenkes-ispa:kalteng:all",
+            "metricId": "kemenkes-ispa",
+            "title": "Weekly ISPA Surveillance",
+            "sourceId": "kemenkes-ispa",
+            "sourceName": "Kemenkes RI",
+            "sourceUrl": "https://kemkes.go.id/",
+            "units": "cases/week",
+            "granularity": "week",
+            "aggregationMode": "incremental",
+            "timezone": "Asia/Jakarta",
+            "coverage": {"scopeId": "Kalimantan Tengah", "completeness": "complete"},
+            "points": [
+                {"label": "2026-W33", "validFrom": "2026-08-10", "validTo": "2026-08-16", "value": 1240, "status": "complete"},
+                {"label": "2026-W34", "validFrom": "2026-08-17", "validTo": "2026-08-23", "value": 1580, "status": "complete"},
+            ],
+        }
+        v2.validate_time_series_contract(ispa_weekly_fixture)
+
+        # Guard: weekly series with single-day validFrom == validTo must be rejected (no fake interpolation)
+        bad_interpolated_ispa = dict(ispa_weekly_fixture)
+        bad_interpolated_ispa["points"] = [
+            {"label": "2026-08-24", "validFrom": "2026-08-24", "validTo": "2026-08-24", "value": 200, "status": "complete"}
+        ]
+        with self.assertRaises(ValueError):
+            v2.validate_time_series_contract(bad_interpolated_ispa)
+
 
 if __name__ == "__main__":
     unittest.main()

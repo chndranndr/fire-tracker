@@ -43,6 +43,7 @@ def validate_json_contracts() -> None:
         ROOT / "data/affiliated-land-display-centers.json",
         ROOT / "data/admin-index.json",
         ROOT / "data/sources-manifest.json",
+        ROOT / "data/hotspots/history.json",
     ):
         with path.open(encoding="utf-8") as handle:
             json.load(handle)
@@ -70,6 +71,7 @@ def validate_patched_html(html: str) -> Path:
     assert "jarak centroid kasar" not in html
     assert 'id="f-region"' in html
     assert "data/hotspots/manifest.json" in html
+    assert "data/hotspots/history.json" in html
     assert "function selectRegion(regionId, preferredDate)" in html
     assert "function refreshNationalSummary()" in html
     assert "chunkedLoading: true" in html
@@ -93,13 +95,18 @@ def validate_patched_html(html: str) -> Path:
     assert 'id="focused-concession-bar"' in html
     assert "function buildUnifiedConcessionViewModels(" in html
     assert "function showUnifiedConcessionDetail(" in html
+    assert 'id="ts-controls-bar"' in html
+    assert 'id="ts-metric-select"' in html
+    assert 'id="ts-delta-strip"' in html
+    assert "function renderReusableTimeSeriesChart(" in html
+    assert "function buildTypedTimeSeriesForView(" in html
 
     scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.S | re.I)
     inline = "\n".join(script for script in scripts if script.strip())
     js_path = Path(tempfile.gettempdir()) / "meratus-inline.js"
     js_path.write_text(inline, encoding="utf-8")
     subprocess.run(["node", "--check", str(js_path)], check=True, cwd=ROOT)
-    print("validated region/date lazy loading, concession inventory, v2 foundation shell, and inline JS syntax")
+    print("validated region/date lazy loading, concession inventory, v2 foundation shell, time-series analytics, and inline JS syntax")
     return js_path
 
 
