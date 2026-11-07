@@ -85,5 +85,16 @@ boundaries.geojson  (region konsesi di peta)
 
   Tanpa Feature untuk suatu id → di peta hanya centroid (belum ada region).
 
+admin-index.json (dihasilkan oleh scripts/v2_contracts.py)
+  Indeks administratif dan ringkasan inventaris konsesi terdeduplikasi per wilayah
+  logis, provinsi, dan kabupaten/kota. Memetakan kode provinsi BPS 2-digit dan
+  poligon lintas batas tanpa harus mengunduh seluruh GeoJSON regional saat awal muat.
+
+sources-manifest.json (dihasilkan oleh scripts/v2_contracts.py)
+  Amplop metadata provenance dan kesegaran terversi (schemaVersion 1) untuk setiap
+  metrik/lapisan MERATUS v2. Membedakan state `fresh`, `stale`, `partial`,
+  `unavailable`, `estimated`, dan `official`, serta melarang representasi data
+  yang belum tersedia (`unavailable`) sebagai angka 0 atau sampel palsu.
+
 Serve with: python -m http.server 8765
 Open: http://127.0.0.1:8765/index.html

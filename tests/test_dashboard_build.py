@@ -29,15 +29,21 @@ inventory_patch = load_module(
     "patch_concession_inventory_dashboard",
     ROOT / "scripts" / "patch_concession_inventory_dashboard.py",
 )
+v2_foundation_patch = load_module(
+    "patch_v2_foundation_dashboard",
+    ROOT / "scripts" / "patch_v2_foundation_dashboard.py",
+)
 
 
 class DashboardBuildTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "index.html").read_text(encoding="utf-8")
-        cls.html = inventory_patch.build_patched_index(
-            region_patch.build_patched_index(
-                land_patch.build_patched_index(source)
+        cls.html = v2_foundation_patch.build_patched_index(
+            inventory_patch.build_patched_index(
+                region_patch.build_patched_index(
+                    land_patch.build_patched_index(source)
+                )
             )
         )
 
@@ -51,6 +57,36 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertNotIn('loadJson("data/boundaries.geojson")', self.html)
         self.assertIn('id="tog-inventory"', self.html)
         self.assertIn("function refreshConcessionInventoryLayer()", self.html)
+
+    def test_v2_foundation_shell_and_shared_filters_present(self):
+        for marker in (
+            'id="primary-nav"',
+            'id="nav-overview"',
+            'id="nav-map"',
+            'id="nav-concessions"',
+            'id="nav-data"',
+            'id="shared-filter-bar"',
+            'id="f-region-shared"',
+            'id="f-prov-shared"',
+            'id="f-kab"',
+            'id="f-window"',
+            'id="f-date-select"',
+            'id="kpi-card-hotspots"',
+            'id="kpi-card-concessions"',
+            'id="kpi-card-dossiers"',
+            'id="kpi-card-environmental"',
+            'id="overview-trend-card"',
+            'id="overview-regional-card"',
+            'id="data-view-panel"',
+            'id="provenance-drawer"',
+            'data/admin-index.json',
+            'data/sources-manifest.json',
+            'function setView(viewName, skipUrlSync)',
+            'function syncUrlQuery()',
+            'function openProvenanceDrawer(metricId)',
+            'DATA UNAVAILABLE',
+        ):
+            self.assertIn(marker, self.html)
 
     def test_patched_inline_javascript_parses(self):
         scripts = re.findall(r"<script>(.*?)</script>", self.html, flags=re.DOTALL)

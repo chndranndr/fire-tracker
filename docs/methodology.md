@@ -285,6 +285,8 @@ Lihat [`adr/005-build-time-frontend-composition.md`](adr/005-build-time-frontend
 | `data/dossiers/manifest.json` | Availability dossier per region |
 | `data/dossiers/kalimantan.json` | WALHI summary, SIPONGI fallback, 12 dossier investigatif |
 | `data/concessions/kalimantan/boundaries.geojson` | Boundary dossier Kalimantan |
+| `data/admin-index.json` | Indeks geografi bersama (region/provinsi/kabupaten) & konsesi terdeduplikasi lintas batas |
+| `data/sources-manifest.json` | Amplop provenance, kesegaran, dan status missing-data per metrik (v2 #19) |
 | `data/firms.json` | Legacy/bootstrap Kalimantan (bukan runtime utama) |
 
 Alur produksi:
