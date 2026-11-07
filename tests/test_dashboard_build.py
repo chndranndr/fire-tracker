@@ -33,16 +33,22 @@ v2_foundation_patch = load_module(
     "patch_v2_foundation_dashboard",
     ROOT / "scripts" / "patch_v2_foundation_dashboard.py",
 )
+v2_concessions_map_patch = load_module(
+    "patch_v2_concessions_map_dashboard",
+    ROOT / "scripts" / "patch_v2_concessions_map_dashboard.py",
+)
 
 
 class DashboardBuildTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "index.html").read_text(encoding="utf-8")
-        cls.html = v2_foundation_patch.build_patched_index(
-            inventory_patch.build_patched_index(
-                region_patch.build_patched_index(
-                    land_patch.build_patched_index(source)
+        cls.html = v2_concessions_map_patch.build_patched_index(
+            v2_foundation_patch.build_patched_index(
+                inventory_patch.build_patched_index(
+                    region_patch.build_patched_index(
+                        land_patch.build_patched_index(source)
+                    )
                 )
             )
         )
@@ -85,6 +91,29 @@ class DashboardBuildTests(unittest.TestCase):
             'function syncUrlQuery()',
             'function openProvenanceDrawer(metricId)',
             'DATA UNAVAILABLE',
+        ):
+            self.assertIn(marker, self.html)
+
+    def test_v2_wave2_concessions_and_map_controls_present(self):
+        for marker in (
+            'id="concession-explorer-controls"',
+            'id="f-concession-source"',
+            'id="f-concession-sort"',
+            'id="concession-count-breakdown"',
+            'id="concession-pagination"',
+            'id="btn-page-prev"',
+            'id="btn-page-next"',
+            'id="map-layer-control"',
+            'id="tog-map-firms"',
+            'id="tog-map-burned-area"',
+            'id="tog-map-concessions"',
+            'id="tog-map-admin"',
+            'id="burned-area-layer-warning"',
+            'id="focused-concession-bar"',
+            'function buildUnifiedConcessionViewModels(',
+            'function queryUnifiedConcessionViewModels(',
+            'function showUnifiedConcessionDetail(',
+            'Investigative dossier available',
         ):
             self.assertIn(marker, self.html)
 

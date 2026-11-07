@@ -52,12 +52,18 @@ def build_patched_html(source: str) -> str:
         "patch_v2_foundation_dashboard",
         ROOT / "scripts" / "patch_v2_foundation_dashboard.py",
     )
+    v2_concessions_map = load_module(
+        "patch_v2_concessions_map_dashboard",
+        ROOT / "scripts" / "patch_v2_concessions_map_dashboard.py",
+    )
     html = land.build_patched_index(source)
     html = region.build_patched_index(html)
     html = inventory.build_patched_index(html)
     inventory.validate_patched(html)
     html = v2_foundation.build_patched_index(html)
     v2_foundation.validate_patched(html)
+    html = v2_concessions_map.build_patched_index(html)
+    v2_concessions_map.validate_patched(html)
     return html
 
 

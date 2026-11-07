@@ -1179,14 +1179,528 @@ def build_sources_manifest(root: Path = ROOT) -> dict[str, Any]:
     }
 
 
+def extract_geometry_bbox_and_centroid(
+    geometry: dict[str, Any] | None,
+) -> tuple[list[float] | None, list[float] | None]:
+    """Compute [minLon, minLat, maxLon, maxLat] and [lat, lon] centroid from a GeoJSON geometry."""
+    if not isinstance(geometry, dict):
+        return None, None
+    coords = geometry.get("coordinates")
+    if not coords:
+        return None, None
+
+    lons: list[float] = []
+    lats: list[float] = []
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, (list, tuple)):
+            return
+        if (
+            len(node) >= 2
+            and isinstance(node[0], (int, float))
+            and isinstance(node[1], (int, float))
+        ):
+            lons.append(float(node[0]))
+            lats.append(float(node[1]))
+            return
+        for child in node:
+            walk(child)
+
+    walk(coords)
+    if not lons or not lats:
+        return None, None
+    min_lon, max_lon = min(lons), max(lons)
+    min_lat, max_lat = min(lats), max(lats)
+    bbox = [
+        round(min_lon, 5),
+        round(min_lat, 5),
+        round(max_lon, 5),
+        round(max_lat, 5),
+    ]
+    centroid = [round((min_lat + max_lat) / 2.0, 5), round((min_lon + max_lon) / 2.0, 5)]
+    return bbox, centroid
+
+
+def build_concession_view_models(
+    inventory_features: list[dict[str, Any]],
+    dossiers: list[dict[str, Any]] | None = None,
+    dossier_boundaries: list[dict[str, Any]] | None = None,
+    region_id: str = "kalimantan",
+    allowed_provinces: set[str] | None = None,
+) -> dict[str, Any]:
+    """Build unified presentation-level ConcessionViewModel rows (#12, #13, #14).
+
+    Respects ADR-007:
+    - Keeps generic inventory and curated dossier JSON separate on disk.
+    - Matches dossier entries to inventory records ONLY when a verifiable
+      dossierId link exists (`matchBasis == 'confirmed_dossier_id'`).
+    - Never transfers ownership/political claims to generic inventory records by proximity.
+    - Keeps unmatched curated dossiers as independent `dossier-only` entries so
+      all 12 Kalimantan dossiers remain accessible without double-counting confirmed matches.
+    """
+    dossier_list = [d for d in (dossiers or []) if isinstance(d, dict) and d.get("id")]
+    dossier_by_id = {str(d["id"]): d for d in dossier_list}
+
+    boundary_by_dossier: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for bfeat in dossier_boundaries or []:
+        if not isinstance(bfeat, dict):
+            continue
+        bprops = bfeat.get("properties") or {}
+        did = str(bprops.get("dossierId") or "").strip()
+        if did:
+            boundary_by_dossier[did].append(bfeat)
+
+    dedup_rows: dict[str, dict[str, Any]] = {}
+    matched_dossier_ids: set[str] = set()
+    matched_inventory_keys: set[str] = set()
+
+    for feat in inventory_features or []:
+        if not isinstance(feat, dict):
+            continue
+        props = feat.get("properties") or {}
+        key = canonical_concession_key(props)
+        vm_id = f"inv:{key}"
+        provs = parse_record_provinces(props, allowed_provinces=allowed_provinces)
+        kabs = parse_record_kabupaten(props)
+        bbox, centroid = extract_geometry_bbox_and_centroid(feat.get("geometry"))
+
+        explicit_dossier_id = str(props.get("dossierId") or "").strip()
+        linked_dossier = dossier_by_id.get(explicit_dossier_id) if explicit_dossier_id else None
+        has_dossier = linked_dossier is not None
+
+        if has_dossier:
+            matched_dossier_ids.add(explicit_dossier_id)
+            matched_inventory_keys.add(key)
+
+        if key in dedup_rows:
+            existing = dedup_rows[key]
+            for p in provs:
+                if p not in existing["provinces"]:
+                    existing["provinces"].append(p)
+            for k in kabs:
+                if k not in existing["kabupaten"]:
+                    existing["kabupaten"].append(k)
+            if bbox and existing.get("bbox"):
+                eb = existing["bbox"]
+                existing["bbox"] = [
+                    round(min(eb[0], bbox[0]), 5),
+                    round(min(eb[1], bbox[1]), 5),
+                    round(max(eb[2], bbox[2]), 5),
+                    round(max(eb[3], bbox[3]), 5),
+                ]
+            elif bbox and not existing.get("bbox"):
+                existing["bbox"] = bbox
+                existing["centroid"] = centroid
+                existing["hasGeometry"] = True
+            continue
+
+        loc_parts = [
+            str(props.get("location") or "").strip(),
+            str(props.get("subdistrict") or "").strip(),
+            str(props.get("district") or "").strip(),
+            str(props.get("province") or "").strip(),
+        ]
+        loc_parts = [lp for lp in loc_parts if lp and lp != "-"]
+        location_text = (
+            ", ".join(provs + kabs)
+            if (provs or kabs)
+            else (", ".join(loc_parts) if loc_parts else region_id.title())
+        )
+
+        permit_date = (
+            str(props.get("permitDate") or "").strip()
+            or (
+                f"{props.get('validFrom')} s/d {props.get('validTo')}"
+                if props.get("validFrom") or props.get("validTo")
+                else ""
+            )
+            or None
+        )
+        area_val = props.get("areaHa")
+        area_ha = float(area_val) if isinstance(area_val, (int, float)) else None
+
+        dedup_rows[key] = {
+            "viewModelId": vm_id,
+            "recordKind": "inventory+dossier" if has_dossier else "inventory",
+            "inventoryId": str(props.get("inventoryId") or key),
+            "linkedDossierId": explicit_dossier_id if has_dossier else None,
+            "hasInvestigativeDossier": has_dossier,
+            "matchBasis": "confirmed_dossier_id" if has_dossier else "none",
+            "region": str(props.get("region") or region_id),
+            "name": str(props.get("name") or "Tanpa Nama Operator"),
+            "operator": str(
+                (linked_dossier.get("name") if linked_dossier else None)
+                or props.get("name")
+                or "Tanpa Nama Operator"
+            ),
+            "sector": str(props.get("sector") or (linked_dossier.get("sector") if linked_dossier else "") or "Lainnya"),
+            "subtype": str(props.get("subtype") or props.get("miningType") or "Izin Konsesi"),
+            "quality": str(props.get("quality") or "OFFICIAL").upper(),
+            "sourceDataset": str(props.get("sourceDataset") or "inventory"),
+            "source": str(props.get("source") or "Inventaris Publik"),
+            "sourceUrl": str(props.get("sourceUrl") or ""),
+            "retrievedAt": str(props.get("retrievedAt") or "") or None,
+            "permitNumber": str(props.get("permitNumber") or "").strip() or None,
+            "permitDate": permit_date,
+            "issuer": str(props.get("issuer") or "").strip() or None,
+            "commodity": str(props.get("commodity") or "").strip() or None,
+            "status": str(props.get("status") or props.get("legalStatus") or "").strip() or None,
+            "group": (
+                str((linked_dossier.get("control") or {}).get("group") or "")
+                if linked_dossier and (linked_dossier.get("control") or {}).get("group")
+                else (str(props.get("group") or "").strip() or None)
+            ),
+            "areaHa": area_ha,
+            "hguAreaHa": float(props["hguAreaHa"]) if isinstance(props.get("hguAreaHa"), (int, float)) else None,
+            "provinces": provs,
+            "kabupaten": kabs,
+            "locationText": location_text,
+            "bbox": bbox,
+            "centroid": centroid,
+            "hasGeometry": bbox is not None,
+            "geometryProcessing": str(props.get("geometryProcessing") or "") or None,
+            "coverageCaveat": str(props.get("coverageCaveat") or "") or None,
+            "walhiHotspots": int(linked_dossier["walhiHotspots"]) if (linked_dossier and linked_dossier.get("walhiHotspots") is not None) else None,
+            "uboStatus": str(linked_dossier.get("uboStatus") or "") if linked_dossier else None,
+        }
+
+    rows = list(dedup_rows.values())
+    unmatched_count = 0
+
+    for d in dossier_list:
+        did = str(d["id"])
+        if did in matched_dossier_ids:
+            continue
+        unmatched_count += 1
+        d_provs = parse_record_provinces(d, allowed_provinces=allowed_provinces)
+        d_kabs = parse_record_kabupaten(d)
+        b_feats = boundary_by_dossier.get(did) or []
+        d_bbox: list[float] | None = None
+        d_centroid: list[float] | None = None
+        b_qual = "NONE"
+        b_source = "WALHI Kalimantan & OSINT Bernama"
+        b_url = ""
+        for bf in b_feats:
+            bb, cc = extract_geometry_bbox_and_centroid(bf.get("geometry"))
+            bp = bf.get("properties") or {}
+            if bp.get("quality"):
+                b_qual = str(bp["quality"]).upper()
+            if bp.get("source"):
+                b_source = str(bp["source"])
+            if bp.get("sourceUrl"):
+                b_url = str(bp["sourceUrl"])
+            if bb:
+                if d_bbox is None:
+                    d_bbox = bb
+                    d_centroid = cc
+                else:
+                    d_bbox = [
+                        round(min(d_bbox[0], bb[0]), 5),
+                        round(min(d_bbox[1], bb[1]), 5),
+                        round(max(d_bbox[2], bb[2]), 5),
+                        round(max(d_bbox[3], bb[3]), 5),
+                    ]
+        if d_centroid is None and isinstance(d.get("centroid"), list) and len(d["centroid"]) >= 2:
+            d_centroid = [round(float(d["centroid"][0]), 5), round(float(d["centroid"][1]), 5)]
+        if not b_url and isinstance(d.get("sources"), list) and d["sources"]:
+            b_url = str(d["sources"][0].get("url") or "")
+
+        rows.append(
+            {
+                "viewModelId": f"dossier:{did}",
+                "recordKind": "dossier-only",
+                "inventoryId": None,
+                "linkedDossierId": did,
+                "hasInvestigativeDossier": True,
+                "matchBasis": "unmatched_curated_dossier",
+                "region": region_id,
+                "name": str(d.get("name") or did),
+                "operator": str(d.get("name") or did),
+                "sector": str(d.get("sector") or "Lainnya"),
+                "subtype": "Dossier Investigasi (Belum Terpetakan di Inventaris Standar)",
+                "quality": b_qual if b_qual in ("OFFICIAL", "GFW", "PERKIRAAN") else "CURATED_DOSSIER",
+                "sourceDataset": "walhi-dossiers",
+                "source": b_source,
+                "sourceUrl": b_url,
+                "retrievedAt": "2026-08-22T00:00:00Z",
+                "permitNumber": None,
+                "permitDate": None,
+                "issuer": None,
+                "commodity": None,
+                "status": "Dossier Kurasi Independen",
+                "group": str((d.get("control") or {}).get("group") or "") or None,
+                "areaHa": None,
+                "hguAreaHa": None,
+                "provinces": d_provs,
+                "kabupaten": d_kabs,
+                "locationText": ", ".join(d_provs) if d_provs else str(d.get("province") or region_id.title()),
+                "bbox": d_bbox,
+                "centroid": d_centroid,
+                "hasGeometry": d_bbox is not None,
+                "geometryProcessing": "Batas poligon dossier kurasi terpisah dari shard inventaris" if d_bbox else "Fallback centroid lokasi kasar (tanpa poligon di shard inventaris)",
+                "coverageCaveat": (
+                    "Dossier ini tidak memiliki kecocokan ID yang terverifikasi di shard inventaris publik BIG/GFW, "
+                    "sehingga dipertahankan sebagai entri independen tanpa penggabungan paksa."
+                ),
+                "walhiHotspots": int(d["walhiHotspots"]) if d.get("walhiHotspots") is not None else None,
+                "uboStatus": str(d.get("uboStatus") or "UNKNOWN"),
+            }
+        )
+
+    return {
+        "region": region_id,
+        "rows": rows,
+        "stats": {
+            "rawInventoryCount": len(inventory_features or []),
+            "deduplicatedInventoryCount": len(dedup_rows),
+            "matchedDossierCount": len(matched_dossier_ids),
+            "matchedInventoryRowCount": len(matched_inventory_keys),
+            "unmatchedDossierOnlyCount": unmatched_count,
+            "totalDossierCount": len(matched_dossier_ids) + unmatched_count,
+            "totalUnifiedCount": len(rows),
+        },
+    }
+
+
+def build_region_concession_view_models(region_id: str, root: Path = ROOT) -> dict[str, Any]:
+    """Load regional inventory shards and dossier JSON from disk and return unified ConcessionViewModel payload."""
+    regions_payload = read_json(root / "data" / "regions.json", {"regions": []})
+    region_meta = next(
+        (r for r in (regions_payload.get("regions") or []) if r.get("id") == region_id),
+        {},
+    )
+    allowed_provs = set(region_meta.get("provinces") or [])
+    inv_manifest = read_json(
+        root / "data" / "concessions" / region_id / "inventory" / "manifest.json", {}
+    )
+    features: list[dict[str, Any]] = []
+    for layer in inv_manifest.get("layers") or []:
+        rel_url = layer.get("url")
+        if rel_url:
+            fc = read_json(root / rel_url, {"features": []})
+            features.extend(fc.get("features") or [])
+
+    conc_manifest = read_json(root / "data" / "concessions" / "manifest.json", {})
+    reg_conc_meta = ((conc_manifest.get("regions") or {}).get(region_id)) or {}
+    dossiers_list: list[dict[str, Any]] = []
+    if reg_conc_meta.get("dossiers"):
+        d_payload = read_json(root / reg_conc_meta["dossiers"], {})
+        dossiers_list = d_payload.get("dossiers") or []
+    dossier_bounds: list[dict[str, Any]] = []
+    if reg_conc_meta.get("boundaries"):
+        b_payload = read_json(root / reg_conc_meta["boundaries"], {})
+        dossier_bounds = b_payload.get("features") or []
+
+    return build_concession_view_models(
+        inventory_features=features,
+        dossiers=dossiers_list,
+        dossier_boundaries=dossier_bounds,
+        region_id=region_id,
+        allowed_provinces=allowed_provs or None,
+    )
+
+
+def query_concession_view_models(
+    rows: list[dict[str, Any]],
+    search: str = "",
+    sector: str = "",
+    quality: str = "",
+    prov: str = "",
+    kab: str = "",
+    dossier_only: bool = False,
+    sort_by: str = "default",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Filter, sort, and paginate unified ConcessionViewModel rows (#13)."""
+    q = str(search or "").strip().lower()
+    sec = str(sector or "").strip()
+    qual = str(quality or "").strip().upper()
+    norm_prov = normalize_province_token(prov) if prov else ""
+    norm_kab = normalize_kabupaten_token(kab) if kab else ""
+
+    filtered: list[dict[str, Any]] = []
+    for row in rows or []:
+        if sec and row.get("sector") != sec:
+            continue
+        if dossier_only and not row.get("hasInvestigativeDossier"):
+            continue
+        if qual:
+            if qual == "DOSSIER":
+                if not row.get("hasInvestigativeDossier"):
+                    continue
+            elif qual == "OFFICIAL":
+                if str(row.get("quality") or "").upper() != "OFFICIAL":
+                    continue
+            elif qual in ("GFW", "ESTIMATED"):
+                if str(row.get("quality") or "").upper() not in ("GFW", "PERKIRAAN"):
+                    continue
+            elif str(row.get("quality") or "").upper() != qual:
+                continue
+        if norm_prov:
+            r_provs = row.get("provinces") or []
+            if norm_prov not in r_provs:
+                continue
+        if norm_kab:
+            r_kabs = row.get("kabupaten") or []
+            if norm_kab not in r_kabs:
+                continue
+        if q:
+            blob = " ".join(
+                str(part or "")
+                for part in (
+                    row.get("name"),
+                    row.get("operator"),
+                    row.get("permitNumber"),
+                    row.get("commodity"),
+                    row.get("group"),
+                    row.get("subtype"),
+                    row.get("locationText"),
+                    " ".join(row.get("provinces") or []),
+                    " ".join(row.get("kabupaten") or []),
+                    row.get("sourceDataset"),
+                    row.get("linkedDossierId"),
+                    row.get("viewModelId"),
+                )
+            ).lower()
+            if q not in blob:
+                continue
+        filtered.append(row)
+
+    def sort_key(item: dict[str, Any]) -> Any:
+        name_k = str(item.get("name") or "").upper()
+        vm_k = str(item.get("viewModelId") or "")
+        area_v = item.get("areaHa")
+        has_area = isinstance(area_v, (int, float))
+        area_num = float(area_v) if has_area else -1.0
+        has_dos = 0 if item.get("hasInvestigativeDossier") else 1
+        if sort_by == "name_asc":
+            return (name_k, vm_k)
+        if sort_by == "area_desc":
+            return (0 if has_area else 1, -area_num, name_k, vm_k)
+        if sort_by == "area_asc":
+            return (0 if has_area else 1, area_num if has_area else float("inf"), name_k, vm_k)
+        if sort_by == "sector_asc":
+            return (str(item.get("sector") or ""), name_k, vm_k)
+        # default: investigative dossiers first, then largest area, then name A-Z
+        return (has_dos, 0 if has_area else 1, -area_num, name_k, vm_k)
+
+    ordered = sorted(filtered, key=sort_key)
+    safe_page_size = max(1, int(page_size or 50))
+    total = len(ordered)
+    total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+    safe_page = min(max(1, int(page or 1)), total_pages)
+    start = (safe_page - 1) * safe_page_size
+    end = start + safe_page_size
+
+    return {
+        "items": ordered[start:end],
+        "totalFiltered": total,
+        "page": safe_page,
+        "pageSize": safe_page_size,
+        "totalPages": total_pages,
+        "startIndex": (start + 1) if total > 0 else 0,
+        "endIndex": min(end, total),
+    }
+
+
+def build_concession_inspector_model(
+    row: dict[str, Any],
+    dossier: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the contextual detail inspector payload with Summary / Map / Investigation tabs (#14).
+
+    Guarantees that the Investigation tab is ONLY exposed when a curated dossier
+    is explicitly linked (`row['hasInvestigativeDossier'] == True`). Generic
+    inventory records never display investigative allegations as verified facts.
+    """
+    has_dossier = bool(row.get("hasInvestigativeDossier") and isinstance(dossier, dict))
+    tabs = ["summary", "map"]
+    if has_dossier:
+        tabs.append("investigation")
+
+    summary_tab = {
+        "viewModelId": row.get("viewModelId"),
+        "recordKind": row.get("recordKind"),
+        "name": row.get("name"),
+        "operator": row.get("operator"),
+        "sector": row.get("sector"),
+        "subtype": row.get("subtype"),
+        "quality": row.get("quality"),
+        "locationText": row.get("locationText"),
+        "provinces": list(row.get("provinces") or []),
+        "kabupaten": list(row.get("kabupaten") or []),
+        "areaHa": row.get("areaHa"),
+        "areaDisplay": (
+            f"{row['areaHa']:,.1f} ha"
+            if isinstance(row.get("areaHa"), (int, float))
+            else "Luas geometri tidak tersedia di atribut sumber"
+        ),
+        "permitNumber": row.get("permitNumber") or "Tidak tercantum di sumber",
+        "permitDate": row.get("permitDate") or "Tidak tercantum di sumber",
+        "issuer": row.get("issuer") or "Tidak tercantum di sumber",
+        "commodity": row.get("commodity"),
+        "status": row.get("status"),
+        "source": row.get("source"),
+        "sourceUrl": row.get("sourceUrl"),
+        "retrievedAt": row.get("retrievedAt"),
+        "coverageCaveat": row.get("coverageCaveat"),
+        "nonAttributionNotice": (
+            "Kehadiran titik panas satelit di dalam atau di sekitar batas konsesi "
+            "adalah konteks spasial semata, bukan bukti atribusi penyebab kebakaran."
+        ),
+    }
+
+    map_tab = {
+        "hasGeometry": bool(row.get("hasGeometry")),
+        "bbox": row.get("bbox"),
+        "centroid": row.get("centroid"),
+        "geometryExplanation": (
+            row.get("geometryProcessing")
+            if row.get("hasGeometry")
+            else "Poligon batas tidak tersedia pada shard inventaris; navigasi menggunakan titik centroid kasar."
+        ),
+        "supportsFirmsSpatialContext": True,
+        "firmsOverlayDisclaimer": (
+            "Overlay observasi NASA FIRMS pada periode terpilih hanya menunjukkan "
+            "irisan spasial (di dalam poligon atau ≤5 km dari batas), bukan bukti pembakaran."
+        ),
+    }
+
+    investigation_tab = None
+    if has_dossier and dossier is not None:
+        investigation_tab = {
+            "dossierId": dossier.get("id"),
+            "matchBasis": row.get("matchBasis"),
+            "walhiClaim": {
+                "reportedHotspots": dossier.get("walhiHotspots"),
+                "claimPeriod": "1 Jan – 27 Jul 2026 (WALHI Kalimantan)",
+                "note": "Klaim atribusi laporan WALHI terikat periode; terpisah dari deteksi mentah NASA FIRMS.",
+            },
+            "uboStatus": dossier.get("uboStatus") or "UNKNOWN",
+            "control": dossier.get("control") or {},
+            "politicalTies": list(dossier.get("politicalTies") or []),
+            "caveats": list(dossier.get("caveats") or []),
+            "sources": list(dossier.get("sources") or []),
+        }
+
+    return {
+        "viewModelId": row.get("viewModelId"),
+        "tabs": tabs,
+        "summary": summary_tab,
+        "map": map_tab,
+        "investigation": investigation_tab,
+    }
+
+
 def generate_v2_Foundation_artifacts(root: Path = ROOT, check_only: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     admin_index = build_admin_index(root)
     sources_manifest = build_sources_manifest(root)
     for env in sources_manifest["metrics"].values():
         validate_metric_envelope(env)
     if not check_only:
-        write_json_atomic( root / "data" / "admin-index.json", admin_index)
-        write_json_atomic( root / "data" / "sources-manifest.json", sources_manifest)
+        write_json_atomic(root / "data" / "admin-index.json", admin_index)
+        write_json_atomic(root / "data" / "sources-manifest.json", sources_manifest)
     return admin_index, sources_manifest
 
 
@@ -1195,12 +1709,17 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="Validate without writing files")
     args = parser.parse_args()
     admin_index, sources_manifest = generate_v2_Foundation_artifacts(ROOT, check_only=args.check)
+    kal_vm = build_region_concession_view_models("kalimantan", ROOT)
     print(
-        f"v2_contracts: validated {len(sources_manifest['metrics'])} metric envelopes "
-        f"and {len(admin_index['regions'])} regional admin indexes "
-        f"({admin_index['nationalConcessions']['deduplicatedCount']} deduplicated concessions)"
+        f"v2_contracts: validated {len(sources_manifest['metrics'])} metric envelopes, "
+        f"{len(admin_index['regions'])} regional admin indexes "
+        f"({admin_index['nationalConcessions']['deduplicatedCount']} deduplicated concessions), "
+        f"and Kalimantan unified ConcessionViewModel ({kal_vm['stats']['totalUnifiedCount']} rows, "
+        f"{kal_vm['stats']['matchedDossierCount']} matched dossiers + "
+        f"{kal_vm['stats']['unmatchedDossierOnlyCount']} dossier-only)"
     )
 
 
 if __name__ == "__main__":
     main()
+

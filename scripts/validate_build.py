@@ -87,6 +87,12 @@ def validate_patched_html(html: str) -> Path:
     assert "data/sources-manifest.json" in html
     assert "function setView(viewName, skipUrlSync)" in html
     assert "DATA UNAVAILABLE" in html
+    assert 'id="concession-explorer-controls"' in html
+    assert 'id="concession-pagination"' in html
+    assert 'id="map-layer-control"' in html
+    assert 'id="focused-concession-bar"' in html
+    assert "function buildUnifiedConcessionViewModels(" in html
+    assert "function showUnifiedConcessionDetail(" in html
 
     scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.S | re.I)
     inline = "\n".join(script for script in scripts if script.strip())

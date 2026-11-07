@@ -164,4 +164,63 @@ assert.ok(context.window.history.lastUrl.includes("region=kalimantan"));
 assert.ok(context.window.history.lastUrl.includes("prov=Kalimantan+Timur"));
 assert.ok(context.window.history.lastUrl.includes("kab=Kutai+Timur"));
 
+// 6. Verify Wave 2 Unified ConcessionViewModel, pagination, and contextual Inspector (#12, #13, #14)
+const wave2Start = html.indexOf("var unifiedConcessionCache = {};");
+const wave2End = html.indexOf("function applyStaticPayload(payload) {");
+assert(wave2Start >= 0 && wave2End > wave2Start, "v2 Wave 2 JS helper block missing from index.html");
+const wave2Code = html.slice(wave2Start, wave2End);
+
+context.elInsp = getEl("inspector");
+context.elDossierCount = getEl("dossier-count");
+context.elSheetLabel = getEl("explorer-sheet-label");
+context.elList = getEl("obj-list");
+context.walhi = kalDossier.walhiSummary;
+context.boundaryById = {};
+context.firmsForView = () => [];
+context.pointInBoundaryGeometry = () => false;
+context.boundaryGeometryDistanceKm = () => 999;
+context.renderSourceLinks = () => "Kompas.id";
+context.renderSources = () => "<ul><li>Kompas.id</li></ul>";
+context.openMobileInspector = () => {};
+context.closeMobileInspector = () => {};
+context.renderList = () => {};
+
+vm.runInContext(wave2Code, context);
+
+const kalMining = JSON.parse(fs.readFileSync("data/concessions/kalimantan/inventory/mining.geojson", "utf8"));
+const kalBounds = JSON.parse(fs.readFileSync("data/concessions/kalimantan/boundaries.geojson", "utf8"));
+const builtVm = context.buildUnifiedConcessionViewModels(
+  kalMining.features,
+  kalDossier.dossiers,
+  kalBounds.features,
+  "kalimantan",
+  regionById.kalimantan.provinces
+);
+context.unifiedConcessionCache["kalimantan"] = builtVm;
+assert.strictEqual(builtVm.stats.rawInventoryCount, 1223);
+assert.strictEqual(builtVm.stats.matchedDossierCount, 5); // kideco, kpc, agm, bre, adaro in mining
+assert.strictEqual(builtVm.stats.unmatchedDossierOnlyCount, 7); // 7 non-mining dossiers stay independent when only mining shard passed
+assert.strictEqual(builtVm.stats.totalDossierCount, 12);
+
+// Generic inventory row must NOT render Investigation tab
+const genericVm = builtVm.rows.find((r) => !r.hasInvestigativeDossier);
+assert(genericVm, "expected at least one generic inventory row");
+context.state.prov = "";
+context.state.kab = "";
+context.state.search = "KIDECO";
+context.state.concessionPage = 1;
+context.showUnifiedConcessionDetail(genericVm.viewModelId, "summary");
+assert.ok(context.elInsp.innerHTML.includes('id="insp-tab-summary"'));
+assert.ok(context.elInsp.innerHTML.includes('id="insp-tab-map"'));
+assert.ok(!context.elInsp.innerHTML.includes('id="insp-tab-investigation"'), "generic inventory row must never expose Investigation tab");
+
+// Dossier-linked row MUST render Investigation tab and preserve search/filter state
+const kidecoVm = builtVm.rows.find((r) => r.linkedDossierId === "kideco");
+assert(kidecoVm, "expected kideco matched row");
+context.showUnifiedConcessionDetail(kidecoVm.viewModelId, "investigation");
+assert.ok(context.elInsp.innerHTML.includes('id="insp-tab-investigation"'));
+assert.ok(context.elInsp.innerHTML.includes('id="insp-pane-investigation"'));
+assert.strictEqual(context.state.search, "KIDECO", "search filter must be preserved across inspector navigation");
+
 console.log("v2 frontend runtime tests passed");
+

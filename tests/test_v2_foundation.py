@@ -258,6 +258,134 @@ class V2FoundationContractTests(unittest.TestCase):
         self.assertEqual(fallback["window"], "all")
         self.assertEqual(fallback["sector"], "")
 
+    def test_unified_concession_viewmodel_matches_and_unmatched_dossiers(self):
+        kal = v2.build_region_concession_view_models("kalimantan", ROOT)
+        stats = kal["stats"]
+        self.assertEqual(stats["rawInventoryCount"], 3053)
+        self.assertEqual(stats["deduplicatedInventoryCount"], 3053)
+        self.assertEqual(stats["matchedDossierCount"], 9)
+        self.assertEqual(stats["matchedInventoryRowCount"], 10)
+        self.assertEqual(stats["unmatchedDossierOnlyCount"], 3)
+        self.assertEqual(stats["totalDossierCount"], 12)
+        self.assertEqual(stats["totalUnifiedCount"], 3056)
+
+        rows = kal["rows"]
+        accessible_dossiers = {
+            r["linkedDossierId"] for r in rows if r.get("hasInvestigativeDossier")
+        }
+        self.assertEqual(
+            accessible_dossiers,
+            {
+                "kideco",
+                "kpc",
+                "agm",
+                "bre",
+                "adaro",
+                "dwima",
+                "kiani",
+                "bsg",
+                "lar",
+                "thm1",
+                "thm2",
+                "sum",
+            },
+        )
+
+        # Unmatched dossiers stay independent as dossier-only records
+        dossier_only = [r for r in rows if r["recordKind"] == "dossier-only"]
+        self.assertEqual({r["linkedDossierId"] for r in dossier_only}, {"thm1", "thm2", "sum"})
+        for r in dossier_only:
+            self.assertEqual(r["matchBasis"], "unmatched_curated_dossier")
+            self.assertTrue(r["hasInvestigativeDossier"])
+
+        # Generic inventory rows never inherit WALHI claims or UBO status by proximity
+        generic_rows = [r for r in rows if r["recordKind"] == "inventory"]
+        self.assertEqual(len(generic_rows), 3043)
+        for r in generic_rows:
+            self.assertFalse(r["hasInvestigativeDossier"])
+            self.assertIsNone(r["linkedDossierId"])
+            self.assertIsNone(r["walhiHotspots"])
+            self.assertIsNone(r["uboStatus"])
+
+    def test_concession_search_filter_sort_pagination_and_large_fixture(self):
+        kal = v2.build_region_concession_view_models("kalimantan", ROOT)
+        rows = kal["rows"]
+
+        # Default page 1 of 50
+        p1 = v2.query_concession_view_models(rows, page=1, page_size=50)
+        self.assertEqual(p1["totalFiltered"], 3056)
+        self.assertEqual(len(p1["items"]), 50)
+        self.assertEqual(p1["totalPages"], 62)
+        # First items in default sort have investigative dossiers
+        self.assertTrue(p1["items"][0]["hasInvestigativeDossier"])
+
+        # Filter by Kalimantan Timur + Tambang + OFFICIAL
+        kaltim_mining = v2.query_concession_view_models(
+            rows,
+            sector="Tambang",
+            quality="OFFICIAL",
+            prov="Kalimantan Timur",
+            sort_by="area_desc",
+        )
+        self.assertGreater(kaltim_mining["totalFiltered"], 100)
+        for r in kaltim_mining["items"]:
+            self.assertEqual(r["sector"], "Tambang")
+            self.assertEqual(r["quality"], "OFFICIAL")
+            self.assertIn("Kalimantan Timur", r["provinces"])
+
+        # Search by specific operator
+        kideco_q = v2.query_concession_view_models(rows, search="KIDECO JAYA AGUNG")
+        self.assertEqual(kideco_q["totalFiltered"], 1)
+        self.assertEqual(kideco_q["items"][0]["linkedDossierId"], "kideco")
+
+        # Large generated fixture (5,000 records) pagination test
+        large_fixture = [
+            {
+                "viewModelId": f"inv:test:{i}",
+                "recordKind": "inventory",
+                "name": f"PT CONCESSION {i:04d}",
+                "operator": f"PT CONCESSION {i:04d}",
+                "sector": "Sawit" if i % 2 == 0 else "PBPH",
+                "subtype": "HGU",
+                "quality": "OFFICIAL",
+                "hasInvestigativeDossier": False,
+                "areaHa": float(i * 10),
+                "provinces": ["Kalimantan Barat"],
+                "kabupaten": ["Ketapang"],
+                "locationText": "Kalimantan Barat, Ketapang",
+            }
+            for i in range(5000)
+        ]
+        page_last = v2.query_concession_view_models(
+            large_fixture, sector="Sawit", sort_by="area_asc", page=50, page_size=50
+        )
+        self.assertEqual(page_last["totalFiltered"], 2500)
+        self.assertEqual(page_last["totalPages"], 50)
+        self.assertEqual(len(page_last["items"]), 50)
+        self.assertEqual(page_last["startIndex"], 2451)
+        self.assertEqual(page_last["endIndex"], 2500)
+
+    def test_contextual_concession_inspector_tabs_and_evidence_separation(self):
+        kal = v2.build_region_concession_view_models("kalimantan", ROOT)
+        rows = kal["rows"]
+        dossiers_payload = v2.read_json(ROOT / "data" / "dossiers" / "kalimantan.json", {})
+        dossier_by_id = {d["id"]: d for d in (dossiers_payload.get("dossiers") or [])}
+
+        generic_row = next(r for r in rows if not r["hasInvestigativeDossier"])
+        generic_insp = v2.build_concession_inspector_model(generic_row, None)
+        self.assertEqual(generic_insp["tabs"], ["summary", "map"])
+        self.assertIsNone(generic_insp["investigation"])
+
+        matched_row = next(r for r in rows if r["linkedDossierId"] == "kideco")
+        matched_insp = v2.build_concession_inspector_model(
+            matched_row, dossier_by_id["kideco"]
+        )
+        self.assertEqual(matched_insp["tabs"], ["summary", "map", "investigation"])
+        self.assertIsNotNone(matched_insp["investigation"])
+        self.assertEqual(matched_insp["investigation"]["dossierId"], "kideco")
+        self.assertTrue(len(matched_insp["investigation"]["sources"]) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
