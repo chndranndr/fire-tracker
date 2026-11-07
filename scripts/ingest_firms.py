@@ -431,18 +431,126 @@ def attach_regions(points: list[dict], region_geometries: dict[str, dict]) -> li
     return result
 
 
+def merge_points_idempotent(existing_points: list[dict], incoming_points: list[dict]) -> list[dict]:
+    """Deduplicate FIRMS observations by observationId without merging distinct passes (#16).
+
+    Observation identity is (platform, acq_date, acq_time, lat_5dp, lon_5dp).
+    Different satellite passes (S-NPP, NOAA-20, NOAA-21) or different acquisition
+    times remain distinct observations and are never collapsed into one hypothetical fire.
+    """
+    by_id: dict[str, dict] = {}
+    for pt in existing_points or []:
+        if not isinstance(pt, dict):
+            continue
+        oid = pt.get("observationId")
+        if not oid and pt.get("platform") and pt.get("date") and pt.get("lat") is not None and pt.get("lon") is not None:
+            oid = observation_id(
+                str(pt["platform"]),
+                str(pt["date"]),
+                str(pt.get("time", "0000")),
+                float(pt["lat"]),
+                float(pt["lon"]),
+            )
+            pt = dict(pt, observationId=oid)
+        if oid:
+            by_id[str(oid)] = pt
+
+    for pt in incoming_points or []:
+        if not isinstance(pt, dict):
+            continue
+        oid = pt.get("observationId")
+        if not oid and pt.get("platform") and pt.get("date") and pt.get("lat") is not None and pt.get("lon") is not None:
+            oid = observation_id(
+                str(pt["platform"]),
+                str(pt["date"]),
+                str(pt.get("time", "0000")),
+                float(pt["lat"]),
+                float(pt["lon"]),
+            )
+            pt = dict(pt, observationId=oid)
+        if oid:
+            by_id[str(oid)] = pt
+
+    return sorted(
+        by_id.values(),
+        key=lambda point: (
+            str(point.get("date", "")),
+            str(point.get("time", "0000")),
+            str(point.get("platform", "")),
+            float(point.get("lat", 0.0)),
+            float(point.get("lon", 0.0)),
+        ),
+    )
+
+
+def summarize_day_points(day_points: list[dict], is_latest_global_date: bool = False) -> dict:
+    """Compute per-day platform, confidence, timestamp, and completeness metadata (#16, #17)."""
+    by_platform: dict[str, int] = defaultdict(int)
+    by_conf: dict[str, int] = defaultdict(int)
+    acquired_dts: list[datetime] = []
+    for pt in day_points:
+        plat = str(pt.get("platform") or "")
+        if plat:
+            by_platform[plat] += 1
+        conf = str(pt.get("conf") or "nominal")
+        by_conf[conf] += 1
+        dt = detection_datetime(pt)
+        if dt is not None:
+            acquired_dts.append(dt)
+
+    oldest_iso = iso_utc(min(acquired_dts)) if acquired_dts else None
+    newest_iso = iso_utc(max(acquired_dts)) if acquired_dts else None
+    newest_time_hhmm = max((str(pt.get("time", "0000")).zfill(4) for pt in day_points), default="0000")
+    completeness = "complete"
+    if is_latest_global_date and newest_time_hhmm < "2100":
+        completeness = "partial"
+
+    return {
+        "byPlatform": dict(sorted(by_platform.items())),
+        "byConfidence": dict(sorted(by_conf.items())),
+        "oldestDetectionUtc": oldest_iso,
+        "newestDetectionUtc": newest_iso,
+        "newestTimeUtc": newest_time_hhmm,
+        "completeness": completeness,
+        "validationStatus": "validated",
+    }
+
+
 def write_hotspot_shards(
     points: list[dict],
     shard_root: Path,
     regions: list[dict],
     meta: dict,
+    preserve_existing: bool = True,
 ) -> dict:
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+
+    if preserve_existing and shard_root.exists():
+        for region_meta in regions:
+            rid = region_meta["id"]
+            region_dir = shard_root / rid
+            if not region_dir.exists():
+                continue
+            for existing_file in sorted(region_dir.glob("*.json")):
+                existing_payload = load_json(existing_file)
+                existing_pts = existing_payload.get("points") if isinstance(existing_payload, dict) else []
+                if isinstance(existing_pts, list):
+                    for ept in existing_pts:
+                        if isinstance(ept, dict) and ept.get("date"):
+                            ept_copy = dict(ept)
+                            ept_copy.setdefault("region", rid)
+                            grouped[(rid, str(ept_copy["date"]))].append(ept_copy)
+
     for point in points:
         grouped[(point["region"], point["date"])].append(point)
 
+    all_dates_global = sorted({date for (_, date) in grouped})
+    latest_global_date = all_dates_global[-1] if all_dates_global else None
+
     active_paths: set[Path] = set()
     region_manifest: dict[str, dict] = {}
+    total_all_points = 0
+    all_merged_points: list[dict] = []
 
     for region_meta in regions:
         region_id = region_meta["id"]
@@ -455,14 +563,10 @@ def write_hotspot_shards(
             reverse=True,
         )
         for date in dates:
-            day_points = sorted(
-                grouped[(region_id, date)],
-                key=lambda point: (
-                    point["time"],
-                    point["platform"],
-                    point["lat"],
-                    point["lon"],
-                ),
+            day_points = merge_points_idempotent([], grouped[(region_id, date)])
+            all_merged_points.extend(day_points)
+            day_summary = summarize_day_points(
+                day_points, is_latest_global_date=(date == latest_global_date)
             )
             path = region_dir / f"{date}.json"
             active_paths.add(path)
@@ -473,6 +577,12 @@ def write_hotspot_shards(
                     "date": date,
                     "count": len(day_points),
                     "lastSuccessfulSync": meta["lastSuccessfulSync"],
+                    "oldestDetectionUtc": day_summary["oldestDetectionUtc"],
+                    "newestDetectionUtc": day_summary["newestDetectionUtc"],
+                    "byPlatform": day_summary["byPlatform"],
+                    "byConfidence": day_summary["byConfidence"],
+                    "completeness": day_summary["completeness"],
+                    "validationStatus": day_summary["validationStatus"],
                     "pipelineVersion": PIPELINE_VERSION,
                 },
                 "points": day_points,
@@ -483,6 +593,10 @@ def write_hotspot_shards(
                     "date": date,
                     "url": f"data/hotspots/{region_id}/{date}.json",
                     "count": len(day_points),
+                    "byPlatform": day_summary["byPlatform"],
+                    "byConfidence": day_summary["byConfidence"],
+                    "newestTimeUtc": day_summary["newestTimeUtc"],
+                    "completeness": day_summary["completeness"],
                 }
             )
             total += len(day_points)
@@ -492,21 +606,29 @@ def write_hotspot_shards(
             "count": total,
             "days": day_entries,
         }
+        total_all_points += total
 
-    if shard_root.exists():
+    if not preserve_existing and shard_root.exists():
         for path in shard_root.glob("*/*.json"):
             if path not in active_paths:
                 path.unlink()
+
+    all_acquired = [
+        dt for pt in all_merged_points if (dt := detection_datetime(pt)) is not None
+    ]
+    newest_utc = iso_utc(max(all_acquired)) if all_acquired else meta.get("newestDetectionUtc")
+    oldest_utc = iso_utc(min(all_acquired)) if all_acquired else meta.get("oldestDetectionUtc")
 
     manifest = {
         "meta": {
             "coverageId": COVERAGE_ID,
             "lastSuccessfulSync": meta["lastSuccessfulSync"],
-            "newestDetectionUtc": meta["newestDetectionUtc"],
-            "oldestDetectionUtc": meta["oldestDetectionUtc"],
+            "newestDetectionUtc": newest_utc,
+            "oldestDetectionUtc": oldest_utc,
             "platforms": meta["platforms"],
-            "count": len(points),
+            "count": total_all_points,
             "pipelineVersion": PIPELINE_VERSION,
+            "historyPreserved": bool(preserve_existing),
         },
         "regions": region_manifest,
     }
