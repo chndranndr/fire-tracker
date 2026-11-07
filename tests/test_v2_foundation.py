@@ -461,6 +461,133 @@ class V2FoundationContractTests(unittest.TestCase):
         self.assertEqual(gap_trends["points"][1]["status"], "gap")
         self.assertIsNone(gap_trends["points"][1]["value"])
         self.assertFalse(gap_trends["points"][2]["deltaComparable"])
+        # Fix #6: completeDayOverDay must NOT compare 2026-08-23 against non-adjacent 2026-08-21 across a gap
+        self.assertIsNotNone(gap_trends["completeDayOverDay"])
+        self.assertFalse(gap_trends["completeDayOverDay"]["comparable"])
+        self.assertEqual(gap_trends["completeDayOverDay"]["reason"], "non_consecutive_dates_gap")
+        self.assertIsNone(gap_trends["completeDayOverDay"]["deltaAbs"])
+
+    def test_firms_freshness_defaults_to_current_utc_time(self):
+        # Fix #2: Omitting reference_utc must compare against current UTC clock, never against lastSuccessfulSync itself
+        outdated_meta = {
+            "count": 100,
+            "lastSuccessfulSync": "2020-01-01T00:00:00Z",
+            "newestDetectionUtc": "2020-01-01T00:00:00Z",
+        }
+        res_outdated = v2.evaluate_firms_freshness(outdated_meta, {"stale": False})
+        self.assertEqual(res_outdated["state"], "stale")
+        self.assertTrue(res_outdated["lastKnownGood"])
+        self.assertGreater(res_outdated["syncAgeMinutes"], 1000)
+
+    def test_admin_index_has_zero_cartesian_product_kabupaten_assignments(self):
+        # Fix #4: Every kabupaten in admin-index.json belongs to exactly one authoritative parent province
+        seen_kab_to_prov = {}
+        for reg_id, reg_data in (self.admin_index.get("regions") or {}).items():
+            for prov, kabs in (reg_data.get("kabupatenByProvince") or {}).items():
+                for kab in kabs:
+                    if kab in seen_kab_to_prov:
+                        self.assertEqual(
+                            seen_kab_to_prov[kab],
+                            prov,
+                            f"Kabupaten {kab} assigned to multiple provinces: {seen_kab_to_prov[kab]} vs {prov}",
+                        )
+                    seen_kab_to_prov[kab] = prov
+
+        self.assertEqual(v2.resolve_kabupaten_province("Tabalong"), "Kalimantan Selatan")
+        self.assertEqual(v2.resolve_kabupaten_province("Paser"), "Kalimantan Timur")
+        self.assertEqual(v2.resolve_kabupaten_province("Kutai Timur"), "Kalimantan Timur")
+
+        # Filtering by mismatched province + kabupaten returns 0 matches
+        cross_border_features = [
+            {
+                "properties": {
+                    "inventoryId": "big-mining-wiup:100:kalimantan",
+                    "sourceInventoryId": "big-mining-wiup:100",
+                    "sector": "Tambang",
+                    "quality": "OFFICIAL",
+                    "province": "KALIMANTAN SELATAN, KALIMANTAN TIMUR",
+                    "district": "TABALONG, PASER",
+                }
+            }
+        ]
+        mismatch = v2.filter_concession_features(
+            cross_border_features,
+            region="kalimantan",
+            province="Kalimantan Selatan",
+            kabupaten="Paser",
+        )
+        self.assertEqual(mismatch["deduplicatedCount"], 0)
+
+    def test_lightweight_concession_inventory_index_is_geometry_free(self):
+        # Fix #5: Every region has a geometry-free metadata index for fast list loading
+        kal_index_path = ROOT / "data" / "concessions" / "kalimantan" / "inventory" / "index.json"
+        self.assertTrue(kal_index_path.exists())
+        kal_index = v2.read_json(kal_index_path)
+        self.assertEqual(kal_index["region"], "kalimantan")
+        self.assertFalse(kal_index["geometryLoaded"])
+        self.assertEqual(kal_index["stats"]["rawInventoryCount"], 3053)
+        self.assertEqual(len(kal_index["rows"]), 3056)
+        for item in kal_index["rows"]:
+            self.assertNotIn("geometry", item)
+            self.assertNotIn("coordinates", item)
+            if item["recordKind"] != "dossier-only":
+                self.assertTrue(item.get("layerUrls"))
+
+    def test_walhi_dossiers_classified_as_curated_investigative_never_official(self):
+        # Fix #7: WALHI/OSINT dossiers use CURATED / INVESTIGATIVE and separate availability, provenance, verification
+        walhi_env = self.sources_manifest["metrics"]["walhi-dossiers"]
+        self.assertEqual(walhi_env["availability"]["state"], "curated")
+        self.assertEqual(walhi_env["availability"]["quality"], "INVESTIGATIVE")
+        self.assertEqual(walhi_env["provenance"]["category"], "civil_society_investigative")
+        self.assertEqual(walhi_env["verification"]["status"], "CURATED_OSINT_INVESTIGATIVE")
+
+        with self.assertRaises(ValueError):
+            bad_env = dict(walhi_env)
+            bad_env["availability"] = dict(walhi_env["availability"])
+            bad_env["availability"]["quality"] = "OFFICIAL"
+            v2.validate_metric_envelope(bad_env)
+
+    def test_hotspot_daily_history_and_time_series_support_province_and_kabupaten_filters(self):
+        # Fix #3: Province and kabupaten filters work on FIRMS daily history and time series
+        history = v2.read_json(ROOT / "data" / "hotspots" / "history.json")
+        ts_prov = v2.build_typed_time_series(
+            "firms-hotspots",
+            history,
+            region="kalimantan",
+            prov="Kalimantan Timur",
+            timezone_mode="UTC",
+            aggregation_mode="incremental",
+        )
+        v2.validate_time_series_contract(ts_prov)
+        self.assertEqual(ts_prov["coverage"]["scopeLevel"], "province")
+        self.assertEqual(len(ts_prov["points"]), 4)
+        self.assertGreater(sum(p["value"] for p in ts_prov["points"] if p["value"] is not None), 0)
+
+        ts_kab = v2.build_typed_time_series(
+            "firms-hotspots",
+            history,
+            region="kalimantan",
+            prov="Kalimantan Timur",
+            kab="Kutai Timur",
+            timezone_mode="UTC",
+            aggregation_mode="incremental",
+        )
+        v2.validate_time_series_contract(ts_kab)
+        self.assertEqual(ts_kab["coverage"]["scopeLevel"], "kabupaten")
+        self.assertEqual(len(ts_kab["points"]), 4)
+
+        # Hierarchy mismatch (Kalimantan Barat + Kutai Timur) returns unavailable
+        ts_mismatch = v2.build_typed_time_series(
+            "firms-hotspots",
+            history,
+            region="kalimantan",
+            prov="Kalimantan Barat",
+            kab="Kutai Timur",
+            timezone_mode="UTC",
+            aggregation_mode="incremental",
+        )
+        self.assertEqual(ts_mismatch["coverage"]["completeness"], "unavailable")
+        self.assertEqual(ts_mismatch["points"], [])
 
     def test_typed_time_series_contract_across_frequencies_and_no_interpolation_guard(self):
         history = v2.read_json(ROOT / "data" / "hotspots" / "history.json")

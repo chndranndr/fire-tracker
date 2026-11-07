@@ -630,43 +630,122 @@ V2_WAVE2_JS = r"""
       };
     }
 
+    function indexLoadedInventoryGeoJson(fc, layerUrl) {
+      if (!fc || !Array.isArray(fc.features)) return;
+      fc.features.forEach(function (feat) {
+        if (!feat || typeof feat !== "object") return;
+        var props = feat.properties || {};
+        if (layerUrl && !props._sourceLayerUrl) props._sourceLayerUrl = layerUrl;
+        var did = String(props.dossierId || "").trim();
+        if (did && !props.sourceInventoryId && !props.inventoryId && !props.sourceDataset) {
+          var dVmId = "dossier:" + did;
+          if (!featureByViewModelId[dVmId]) featureByViewModelId[dVmId] = [];
+          if (featureByViewModelId[dVmId].indexOf(feat) === -1) {
+            featureByViewModelId[dVmId].push(feat);
+          }
+          return;
+        }
+        var key = String(props.sourceInventoryId || props.inventoryId || (props.sourceDataset + ":" + props.sourceRecordId));
+        var vmId = "inv:" + key;
+        if (!featureByViewModelId[vmId]) featureByViewModelId[vmId] = [];
+        if (featureByViewModelId[vmId].indexOf(feat) === -1) {
+          featureByViewModelId[vmId].push(feat);
+        }
+      });
+    }
+
+    function ensureConcessionGeometryForRow(row) {
+      if (!row || !row.hasGeometry) return Promise.resolve([]);
+      var existing = featureByViewModelId[row.viewModelId];
+      if (existing && existing.length) return Promise.resolve(existing);
+      if (row.linkedDossierId && boundaryById && boundaryById[row.linkedDossierId] && boundaryById[row.linkedDossierId].length) {
+        featureByViewModelId[row.viewModelId] = boundaryById[row.linkedDossierId];
+        return Promise.resolve(featureByViewModelId[row.viewModelId]);
+      }
+      var urls = Array.isArray(row.layerUrls) && row.layerUrls.length
+        ? row.layerUrls
+        : [];
+      if (!urls.length && row.region && row.sourceDataset) {
+        var dsMap = {
+          "big-forestry-ha": "forestry-ha.geojson",
+          "big-forestry-hti": "forestry-hti.geojson",
+          "big-forestry-re": "forestry-re.geojson",
+          "big-oil-palm-ihl": "oil-palm-ihl.geojson",
+          "gfw-oil-palm": "oil-palm-gfw.geojson",
+          "gfw-wood-fiber": "wood-fiber-gfw.geojson",
+          "gfw-logging": "logging-gfw.geojson",
+          "esdm-mining-wiup": "mining-wiup.geojson"
+        };
+        if (dsMap[row.sourceDataset]) {
+          urls = ["data/concessions/" + row.region + "/inventory/" + dsMap[row.sourceDataset]];
+        }
+      }
+      if (!urls.length) return Promise.resolve([]);
+      return Promise.all(urls.map(function (u) {
+        return loadConcessionInventoryData({ url: u }).then(function (fc) {
+          indexLoadedInventoryGeoJson(fc, u);
+          return fc;
+        }).catch(function () { return null; });
+      })).then(function () {
+        return featureByViewModelId[row.viewModelId] || [];
+      });
+    }
+
     function ensureRegionalUnifiedConcessionIndex(regionId) {
       if (!regionId || regionId === "indonesia") return Promise.resolve(null);
       if (unifiedConcessionCache[regionId]) return Promise.resolve(unifiedConcessionCache[regionId]);
       if (unifiedConcessionLoading[regionId]) return unifiedConcessionLoading[regionId];
 
+      var indexUrl = "data/concessions/" + regionId + "/inventory/index.json";
       var allowedProvs = (regionById[regionId] && regionById[regionId].provinces) || null;
-      var p = Promise.all([
-        loadConcessionInventoryManifest(regionId),
-        loadRegionStatic(regionId)
-      ]).then(function (pair) {
-        var invManifest = pair[0];
-        var staticPayload = pair[1] || {};
-        var layers = (invManifest && Array.isArray(invManifest.layers)) ? invManifest.layers : [];
-        return Promise.all(layers.map(loadConcessionInventoryData)).then(function (layerPayloads) {
-          var allFeatures = [];
-          layerPayloads.forEach(function (fc) {
-            if (fc && Array.isArray(fc.features)) {
-              allFeatures = allFeatures.concat(fc.features);
+      var p = loadJson(indexUrl).then(function (idxPayload) {
+        if (idxPayload && Array.isArray(idxPayload.rows)) {
+          idxPayload.rows.forEach(function (row) {
+            if (row && row.viewModelId) {
+              viewModelById[row.viewModelId] = row;
             }
           });
-          var dossiersList = (staticPayload.dossiers && Array.isArray(staticPayload.dossiers.dossiers))
-            ? staticPayload.dossiers.dossiers
-            : [];
-          var bFeatures = (staticPayload.boundaries && Array.isArray(staticPayload.boundaries.features))
-            ? staticPayload.boundaries.features
-            : [];
-          var built = buildUnifiedConcessionViewModels(
-            allFeatures,
-            dossiersList,
-            bFeatures,
-            regionId,
-            allowedProvs
-          );
-          built.manifest = invManifest;
-          unifiedConcessionCache[regionId] = built;
+          idxPayload.geometryLoaded = false;
+          unifiedConcessionCache[regionId] = idxPayload;
           delete unifiedConcessionLoading[regionId];
-          return built;
+          return idxPayload;
+        }
+        throw new Error("Invalid regional concession metadata index payload");
+      }).catch(function () {
+        // Fallback when lightweight index.json is not present: build from manifest & layers
+        return Promise.all([
+          loadConcessionInventoryManifest(regionId),
+          loadRegionStatic(regionId)
+        ]).then(function (pair) {
+          var invManifest = pair[0];
+          var staticPayload = pair[1] || {};
+          var layers = (invManifest && Array.isArray(invManifest.layers)) ? invManifest.layers : [];
+          return Promise.all(layers.map(loadConcessionInventoryData)).then(function (layerPayloads) {
+            var allFeatures = [];
+            layerPayloads.forEach(function (fc) {
+              if (fc && Array.isArray(fc.features)) {
+                allFeatures = allFeatures.concat(fc.features);
+              }
+            });
+            var dossiersList = (staticPayload.dossiers && Array.isArray(staticPayload.dossiers.dossiers))
+              ? staticPayload.dossiers.dossiers
+              : (staticPayload.dossier && Array.isArray(staticPayload.dossier.dossiers) ? staticPayload.dossier.dossiers : []);
+            var bFeatures = (staticPayload.boundaries && Array.isArray(staticPayload.boundaries.features))
+              ? staticPayload.boundaries.features
+              : [];
+            var built = buildUnifiedConcessionViewModels(
+              allFeatures,
+              dossiersList,
+              bFeatures,
+              regionId,
+              allowedProvs
+            );
+            built.manifest = invManifest;
+            built.geometryLoaded = true;
+            unifiedConcessionCache[regionId] = built;
+            delete unifiedConcessionLoading[regionId];
+            return built;
+          });
         });
       }).catch(function (err) {
         delete unifiedConcessionLoading[regionId];
@@ -690,7 +769,17 @@ V2_WAVE2_JS = r"""
       var page = Math.max(1, parseInt(opts.page != null ? opts.page : (state.concessionPage || 1), 10) || 1);
       var pageSize = Math.max(1, parseInt(opts.pageSize != null ? opts.pageSize : (state.concessionPageSize || 50), 10) || 50);
 
-      var filtered = (Array.isArray(rows) ? rows : []).filter(function (row) {
+      var normProv = prov ? (normalizeProvinceName(prov) || prov) : "";
+      var normKab = kab ? (normalizeKabupatenName(kab) || kab) : "";
+      var hierarchyMismatch = false;
+      if (normProv && normKab && typeof resolveKabupatenProvinceJs === "function") {
+        var authParentProv = resolveKabupatenProvinceJs(normKab);
+        if (authParentProv && authParentProv !== normProv) {
+          hierarchyMismatch = true;
+        }
+      }
+
+      var filtered = hierarchyMismatch ? [] : (Array.isArray(rows) ? rows : []).filter(function (row) {
         if (sec && row.sector !== sec) return false;
         if (qual) {
           if (qual === "DOSSIER") {
@@ -704,13 +793,13 @@ V2_WAVE2_JS = r"""
             if (rq !== "GFW" && rq !== "PERKIRAAN") return false;
           }
         }
-        if (prov) {
+        if (normProv) {
           var rProvs = row.provinces || [];
-          if (rProvs.indexOf(prov) === -1) return false;
+          if (rProvs.indexOf(normProv) === -1) return false;
         }
-        if (kab) {
+        if (normKab) {
           var rKabs = row.kabupaten || [];
-          if (rKabs.indexOf(kab) === -1) return false;
+          if (rKabs.indexOf(normKab) === -1) return false;
         }
         if (party) {
           if (!row.hasInvestigativeDossier || !row.linkedDossierId) return false;
@@ -839,15 +928,36 @@ V2_WAVE2_JS = r"""
           }
         });
         focusedConcessionLayer.addLayer(gj);
-      } else if (row.centroid && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
-        var cm = L.circleMarker(row.centroid, {
-          radius: 9,
-          color: "#ffffff",
-          weight: 2,
-          fillColor: "#e3a008",
-          fillOpacity: 0.85
-        });
-        focusedConcessionLayer.addLayer(cm);
+      } else {
+        if (row.centroid && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
+          var cm = L.circleMarker(row.centroid, {
+            radius: 9,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#e3a008",
+            fillOpacity: 0.85
+          });
+          focusedConcessionLayer.addLayer(cm);
+        }
+        if (row.hasGeometry && (state.view === "map" || state.inspectorTab === "map")) {
+          ensureConcessionGeometryForRow(row).then(function (loadedFeats) {
+            if (state.selectedViewModelId === row.viewModelId && loadedFeats && loadedFeats.length && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
+              focusedConcessionLayer.clearLayers();
+              var gjLazy = L.geoJSON({ type: "FeatureCollection", features: loadedFeats }, {
+                style: function () {
+                  return {
+                    color: "#ffffff",
+                    weight: 2.5,
+                    opacity: 1,
+                    fillColor: "#e3a008",
+                    fillOpacity: 0.30
+                  };
+                }
+              });
+              focusedConcessionLayer.addLayer(gjLazy);
+            }
+          });
+        }
       }
     }
 
@@ -891,9 +1001,9 @@ V2_WAVE2_JS = r"""
       var returnLabel = "← Kembali ke Daftar (" + qRes.totalFiltered.toLocaleString("id-ID") + " konsesi · Hal. " + qRes.page + ")";
 
       var qualityBadgeClass = row.quality === "OFFICIAL" ? "official" : (row.recordKind === "dossier-only" ? "dossier-only" : "gfw");
-      var qualityLabel = row.quality === "OFFICIAL" ? "OFFICIAL · BIG" : (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN" : "ESTIMATED · " + row.quality);
+      var qualityLabel = row.quality === "OFFICIAL" ? "OFFICIAL · BIG" : (row.recordKind === "dossier-only" ? "CURATED · INVESTIGATIVE" : "ESTIMATED · " + row.quality);
       var dossierBadgeHtml = hasDossier
-        ? '<span class="vm-badge dossier-linked">' + (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN (TANPA PADANAN INVENTARIS)" : "DOSSIER INVESTIGASI TERSEDIA") + '</span>'
+        ? '<span class="vm-badge dossier-linked">' + (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN (CURATED · INVESTIGATIVE)" : "DOSSIER INVESTIGASI TERSEDIA") + '</span>'
         : '<span class="vm-badge">INVENTARIS GENERIK · TANPA KLAIM ATRIBUSI</span>';
 
       var tabsHtml =
@@ -942,12 +1052,21 @@ V2_WAVE2_JS = r"""
       } else if (activeTab === "map") {
         var featsForContext = featureByViewModelId[row.viewModelId] ||
           (row.linkedDossierId ? (boundaryById[row.linkedDossierId] || []) : []);
+        if (row.hasGeometry && (!featsForContext || !featsForContext.length) && !row._geomLoading) {
+          row._geomLoading = true;
+          ensureConcessionGeometryForRow(row).then(function () {
+            row._geomLoading = false;
+            if (state.selectedViewModelId === viewModelId && state.inspectorTab === "map") {
+              showUnifiedConcessionDetail(viewModelId, "map");
+            }
+          });
+        }
         var insideCount = 0;
         var nearCount = 0;
         var activePts = firmsForView();
         if (featsForContext && featsForContext.length && activePts.length) {
           activePts.forEach(function (pt) {
-            var isIn = featsForContext.some(function (f) { return pointInBoundaryGeometry(pt.lat, pt.lon, f.geometry); });
+            var isIn = featsForContext.some(function (f) { return pointInBoundaryGeometry(pt.lon, pt.lat, f.geometry); });
             if (isIn) {
               insideCount += 1;
             } else {
@@ -1396,7 +1515,8 @@ def build_patched_index(source: str) -> str:
         "      }\n"
         "      if (state.region === \"indonesia\") {"
     )
-    text = replace_once(text, old_firms_refresh, new_firms_refresh, "v2 refreshFirmsLayer showFirms guard")
+    if "if (!state.showFirms)" not in text and "if (state.showFirms === false)" not in text:
+        text = replace_once(text, old_firms_refresh, new_firms_refresh, "v2 refreshFirmsLayer showFirms guard")
 
     # 10. Update elList click listener and wire Wave 2 controls
     old_list_click = (
@@ -1522,6 +1642,8 @@ def validate_patched(text: str) -> None:
         'id="burned-area-layer-warning"',
         'id="focused-concession-bar"',
         'function buildUnifiedConcessionViewModels(',
+        'function ensureConcessionGeometryForRow(',
+        '/inventory/index.json',
         'function queryUnifiedConcessionViewModels(',
         'function showUnifiedConcessionDetail(',
         'Investigative dossier available',

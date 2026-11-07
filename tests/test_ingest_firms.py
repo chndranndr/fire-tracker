@@ -284,6 +284,109 @@ class IngestFirmsTests(unittest.TestCase):
             self.assertEqual(manifest["regions"]["kalimantan"]["count"], 3)
             self.assertTrue((root / "kalimantan" / "2026-08-20.json").exists())
 
+    def test_durable_store_restores_and_persists_history_across_ephemeral_workspaces(self):
+        regions = [{"id": region, "label": region} for region in ingest_firms.REGION_ORDER]
+        batch_day_1 = [
+            {
+                "observationId": "S-NPP|2026-08-20|0600|0.50000|110.00000",
+                "lat": 0.5,
+                "lon": 110.0,
+                "date": "2026-08-20",
+                "time": "0600",
+                "platform": "S-NPP",
+                "conf": "nominal",
+                "dn": "D",
+                "frp": 10.0,
+                "region": "kalimantan",
+            },
+            {
+                "observationId": "S-NPP|2026-08-21|0600|0.50000|110.00000",
+                "lat": 0.5,
+                "lon": 110.0,
+                "date": "2026-08-21",
+                "time": "0600",
+                "platform": "S-NPP",
+                "conf": "high",
+                "dn": "D",
+                "frp": 20.0,
+                "region": "kalimantan",
+            },
+        ]
+        batch_day_2 = [
+            # Overlapping 2026-08-21 observation + new 2026-08-22 observation (2026-08-20 aged out of API window)
+            {
+                "observationId": "S-NPP|2026-08-21|0600|0.50000|110.00000",
+                "lat": 0.5,
+                "lon": 110.0,
+                "date": "2026-08-21",
+                "time": "0600",
+                "platform": "S-NPP",
+                "conf": "high",
+                "dn": "D",
+                "frp": 20.0,
+                "region": "kalimantan",
+            },
+            {
+                "observationId": "NOAA-21|2026-08-22|1800|0.50000|110.00000",
+                "lat": 0.5,
+                "lon": 110.0,
+                "date": "2026-08-22",
+                "time": "1800",
+                "platform": "NOAA-21",
+                "conf": "nominal",
+                "dn": "N",
+                "frp": 15.0,
+                "region": "kalimantan",
+            },
+        ]
+        meta_1 = {
+            "lastSuccessfulSync": "2026-08-21T07:00:00Z",
+            "newestDetectionUtc": "2026-08-21T06:00:00Z",
+            "oldestDetectionUtc": "2026-08-20T06:00:00Z",
+            "platforms": ["S-NPP"],
+        }
+        meta_2 = {
+            "lastSuccessfulSync": "2026-08-22T19:00:00Z",
+            "newestDetectionUtc": "2026-08-22T18:00:00Z",
+            "oldestDetectionUtc": "2026-08-21T06:00:00Z",
+            "platforms": ["S-NPP", "NOAA-21"],
+        }
+        with tempfile.TemporaryDirectory() as durable_tmp, \
+             tempfile.TemporaryDirectory() as ephemeral_run_1, \
+             tempfile.TemporaryDirectory() as ephemeral_run_2:
+            durable_dir = Path(durable_tmp) / "hotspots"
+            ws_1 = Path(ephemeral_run_1) / "hotspots"
+            ws_2 = Path(ephemeral_run_2) / "hotspots"
+
+            # Ephemeral CI run #1 writes shards and persists them to durable_dir
+            ingest_firms.write_hotspot_shards(
+                batch_day_1,
+                ws_1,
+                regions,
+                meta_1,
+                preserve_existing=True,
+                durable_store_dir=durable_dir,
+            )
+            self.assertTrue((durable_dir / "manifest.json").exists())
+            self.assertTrue((durable_dir / "kalimantan" / "2026-08-20.json").exists())
+
+            # Ephemeral CI run #2 starts with a completely empty local workspace (ws_2)
+            self.assertFalse((ws_2 / "kalimantan" / "2026-08-20.json").exists())
+            manifest_2 = ingest_firms.write_hotspot_shards(
+                batch_day_2,
+                ws_2,
+                regions,
+                meta_2,
+                preserve_existing=True,
+                durable_store_dir=durable_dir,
+            )
+            kal_days = manifest_2["regions"]["kalimantan"]["days"]
+            self.assertEqual([d["date"] for d in kal_days], ["2026-08-22", "2026-08-21", "2026-08-20"])
+            self.assertEqual(manifest_2["regions"]["kalimantan"]["count"], 3)
+            self.assertEqual(manifest_2["meta"]["oldestDetectionUtc"], "2026-08-20T06:00:00Z")
+            self.assertTrue((ws_2 / "kalimantan" / "2026-08-20.json").exists())
+            self.assertTrue((durable_dir / "kalimantan" / "2026-08-22.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

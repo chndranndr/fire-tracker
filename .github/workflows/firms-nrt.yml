@@ -14,7 +14,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -48,14 +48,24 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python scripts/validate_build.py
 
+      - name: Restore durable FIRMS history store
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/firms-history-store
+          if git ls-remote --exit-code --heads origin firms-history-data >/dev/null 2>&1; then
+            git fetch --depth=1 origin firms-history-data
+            git archive FETCH_HEAD | tar -x -C /tmp/firms-history-store
+          fi
+
       - name: Fetch and validate FIRMS
         id: ingest
         if: github.event_name != 'pull_request'
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          FIRMS_HISTORY_STORE_DIR: /tmp/firms-history-store
         run: |
           set +e
-          python scripts/ingest_firms.py
+          python scripts/ingest_firms.py --durable-store-dir /tmp/firms-history-store
           result=$?
           echo "result=$result" >> "$GITHUB_OUTPUT"
           set -e
@@ -67,6 +77,23 @@ jobs:
       - name: Validate build regression gate
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}
         run: python scripts/validate_build.py
+
+      - name: Persist durable FIRMS history store
+        if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' && steps.ingest.outputs.result == '0' }}
+        run: |
+          mkdir -p /tmp/firms-history-store/hotspots
+          cp -f data/hotspots/history.json /tmp/firms-history-store/hotspots/history.json || true
+          cp -f data/hotspots/manifest.json /tmp/firms-history-store/hotspots/manifest.json || true
+          REMOTE_URL="$(git config --get remote.origin.url)"
+          cd /tmp/firms-history-store
+          git init -b firms-history-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(firms): persist durable multi-day hotspot history"
+            git push --force "$REMOTE_URL" HEAD:refs/heads/firms-history-data
+          fi
 
       - name: Configure GitHub Pages
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' }}

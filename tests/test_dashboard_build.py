@@ -93,9 +93,14 @@ class DashboardBuildTests(unittest.TestCase):
             'id="provenance-drawer"',
             'data/admin-index.json',
             'data/sources-manifest.json',
+            'data/admin-boundaries.geojson',
+            'function evaluateFirmsFreshnessRuntime(nowMs)',
+            'function pointMatchesProvince(p, provName)',
+            'function pointMatchesKabupaten(p, kabName, activeProvName)',
             'function setView(viewName, skipUrlSync)',
             'function syncUrlQuery()',
             'function openProvenanceDrawer(metricId)',
+            'CURATED · INVESTIGATIVE',
             'DATA UNAVAILABLE',
         ):
             self.assertIn(marker, self.html)
@@ -117,6 +122,8 @@ class DashboardBuildTests(unittest.TestCase):
             'id="burned-area-layer-warning"',
             'id="focused-concession-bar"',
             'function buildUnifiedConcessionViewModels(',
+            'function ensureConcessionGeometryForRow(',
+            '/inventory/index.json',
             'function queryUnifiedConcessionViewModels(',
             'function showUnifiedConcessionDetail(',
             'Investigative dossier available',
@@ -132,6 +139,7 @@ class DashboardBuildTests(unittest.TestCase):
             'id="ts-delta-strip"',
             'id="ts-chart-tooltip"',
             'data/hotspots/history.json',
+            'function areDatesConsecutiveJs(',
             'function buildTypedTimeSeriesForView(',
             'function renderReusableTimeSeriesChart(',
         ):

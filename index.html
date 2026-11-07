@@ -513,6 +513,11 @@
       border-color: rgba(107, 143, 113, 0.6);
       background: rgba(107, 143, 113, 0.12);
     }
+    .avail-badge.curated, .avail-badge.investigative {
+      color: #d8b4fe;
+      border-color: rgba(192, 132, 252, 0.55);
+      background: rgba(192, 132, 252, 0.12);
+    }
     .avail-badge.partial, .avail-badge.estimated {
       color: var(--amber);
       border-color: rgba(227, 160, 8, 0.5);
@@ -1422,7 +1427,7 @@
             <article class="kpi-card" id="kpi-card-dossiers">
               <div class="kpi-card-head">
                 <span class="kpi-card-title">3 · Dossier &amp; Klaim WALHI</span>
-                <span class="avail-badge official" id="kpi-dossiers-badge">CURATED</span>
+                <span class="avail-badge curated" id="kpi-dossiers-badge">CURATED · INVESTIGATIVE</span>
               </div>
               <div class="kpi-card-value" id="kpi-dossiers-val">—</div>
               <div class="kpi-card-meta" id="kpi-dossiers-meta">Memuat cakupan dossier…</div>
@@ -1502,7 +1507,7 @@
           <div style="max-width:1100px;margin:0 auto">
             <h2 style="margin:0 0 6px;font-size:20px;color:var(--amber);letter-spacing:0.06em;text-transform:uppercase">Katalog Provenance, Kesegaran &amp; Status Data (Kontrak v2 #19)</h2>
             <p style="margin:0 0 12px;color:var(--muted);font-size:14px;line-height:1.45">
-              Setiap metrik dan lapisan peta di MERATUS memiliki amplop metadata terstandar. Nilai <strong>0 teramati</strong> dibedakan secara ketat dari <strong>DATA UNAVAILABLE</strong> (belum di-ingest atau di luar resolusi geografi). Lapisan Detection, ConcessionClaim, ConcessionInventory, Control, dan PoliticalTie tetap terpisah.
+              Setiap metrik dan lapisan peta di MERATUS memiliki amplop metadata terstandar dengan pemisahan eksplisit antara <strong>Ketersediaan (Availability)</strong>, <strong>Asal Sumber (Provenance)</strong>, dan <strong>Status Verifikasi</strong>. Nilai <strong>0 teramati</strong> dibedakan secara ketat dari <strong>DATA UNAVAILABLE</strong>.
             </p>
             <div class="data-view-grid" id="data-view-grid"></div>
           </div>
@@ -1653,9 +1658,10 @@
       loadJson("data/affiliated-land-display-centers.json").catch(function () { return { meta: {}, centers: {} }; }),
       loadJson("data/admin-index.json").catch(function () { return null; }),
       loadJson("data/sources-manifest.json").catch(function () { return null; }),
+      loadJson("data/admin-boundaries.geojson").catch(function () { return null; }),
       loadJson("data/hotspots/history.json").catch(function () { return null; })
     ]).then(function (pair) {
-      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9]);
+      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9], pair[10]);
     }).catch(function (err) {
       elHeaderStats.textContent = "DATA ERROR";
       elStamp.textContent = "GAGAL MUAT JSON";
@@ -1665,7 +1671,7 @@
         "</span></div>";
     });
 
-    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload, hotspotHistoryPayload) {
+    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload, adminBoundariesPayload, hotspotHistoryPayload) {
     var firms = [];
     var firmsMeta = hotspotsManifest && hotspotsManifest.meta ? hotspotsManifest.meta : null;
     var pipelineStatus = (pipelineStatusPayload && typeof pipelineStatusPayload === "object") ? pipelineStatusPayload : null;
@@ -1684,6 +1690,10 @@
     /* === MERATUS v2 Foundation Helpers (#10, #11, #19) === */
     var adminIndex = null;
     var sourcesManifest = null;
+    var adminBoundariesGeoJson = null;
+    var adminBoundaryByProv = {};
+    var adminBoundaryByKab = {};
+    var adminBoundaryLayer = null;
 
     var BPS_PROVINCE_MAP = {
       "11": "Aceh", "12": "Sumatera Utara", "13": "Sumatera Barat", "14": "Riau",
@@ -1709,6 +1719,22 @@
     PROVINCE_LOOKUP["D.I. YOGYAKARTA"] = "DI Yogyakarta";
     PROVINCE_LOOKUP["DKI JAKARTA"] = "DKI Jakarta";
     PROVINCE_LOOKUP["BANGKA BELITUNG"] = "Kepulauan Bangka Belitung";
+
+    var KABUPATEN_ALIASES = {
+      "PASIR": "Paser",
+      "GUNUNGMAS": "Gunung Mas",
+      "TANAHBUMBU": "Tanah Bumbu",
+      "TANAHLAUT": "Tanah Laut",
+      "TANATIDUNG": "Tana Tidung",
+      "BOLAANGMONGONDOW": "Bolaang Mongondow",
+      "BOLANGMONGONDOW UTARA": "Bolaang Mongondow Utara",
+      "BONEBOLANGO": "Bone Bolango",
+      "POHUWATU": "Pohuwato",
+      "TOLI TOLI": "Tolitoli",
+      "KOTA PALANGKARAYA": "Kota Palangka Raya",
+      "PALANGKARAYA": "Kota Palangka Raya",
+      "PALANGKA RAYA": "Kota Palangka Raya"
+    };
 
     function normalizeProvinceName(token) {
       if (!token) return null;
@@ -1741,23 +1767,383 @@
       var cleaned = String(token).replace(/\s+/g, " ").trim();
       if (!cleaned || cleaned === "-" || cleaned === "—") return null;
       var upper = cleaned.toUpperCase().replace(/^(KABUPATEN|KAB\.)\s+/, "").trim();
-      if (!upper || upper === "-" || upper === "DI ATAS 12 MIL LAUT") return null;
+      if (!upper || upper === "-" || upper === "DI ATAS 12 MIL LAUT" || upper === "4-12 MIL LAUT") return null;
+      if (KABUPATEN_ALIASES[upper]) return KABUPATEN_ALIASES[upper];
       var words = upper.toLowerCase().split(" ").map(function (w) {
         return w ? w.charAt(0).toUpperCase() + w.slice(1) : "";
       }).join(" ");
-      return words;
+      return KABUPATEN_ALIASES[words.toUpperCase()] || words;
     }
 
     function parseRecordKabupaten(props) {
       if (!props || typeof props !== "object") return [];
       var raw = props.district || props.kabupaten;
       if (!raw) return [];
+      var text = String(raw)
+        .replace(/HULU\s+SUNGAI\s*\(\s*TENGAH\s*,\s*SELATAN\s*\)/gi, "HULU SUNGAI TENGAH, HULU SUNGAI SELATAN")
+        .replace(/TANGGAMUS\s*-\s*PRINGSEWU/gi, "TANGGAMUS, PRINGSEWU");
       var out = [];
-      String(raw).split(/[,;/]+/).forEach(function (part) {
+      text.split(/[,;/&]+/).forEach(function (part) {
         var norm = normalizeKabupatenName(part);
         if (norm && out.indexOf(norm) === -1) out.push(norm);
       });
       return out;
+    }
+
+    function resolveKabupatenProvinceJs(kabName) {
+      if (!kabName) return null;
+      var norm = normalizeKabupatenName(kabName) || kabName;
+      if (adminBoundaryByKab[norm] && adminBoundaryByKab[norm].province) {
+        return adminBoundaryByKab[norm].province;
+      }
+      if (adminIndex && adminIndex.kabupatenParentProvince && adminIndex.kabupatenParentProvince[norm]) {
+        return adminIndex.kabupatenParentProvince[norm];
+      }
+      if (adminIndex && adminIndex.regions) {
+        var rids = Object.keys(adminIndex.regions);
+        for (var i = 0; i < rids.length; i++) {
+          var reg = adminIndex.regions[rids[i]];
+          var byProv = (reg && reg.kabupatenByProvince) || {};
+          var pNames = Object.keys(byProv);
+          for (var j = 0; j < pNames.length; j++) {
+            var pName = pNames[j];
+            if ((byProv[pName] || []).indexOf(norm) !== -1) return pName;
+          }
+        }
+      }
+      return null;
+    }
+
+    function resolveProvinceRegionJs(provName) {
+      var norm = normalizeProvinceName(provName) || provName;
+      if (!norm) return null;
+      if (adminBoundaryByProv[norm] && adminBoundaryByProv[norm].region) {
+        return adminBoundaryByProv[norm].region;
+      }
+      for (var i = 0; i < regions.length; i++) {
+        if ((regions[i].provinces || []).indexOf(norm) !== -1) return regions[i].id;
+      }
+      return null;
+    }
+
+    function computeGeometryBboxJs(geom) {
+      if (!geom || !geom.coordinates) return null;
+      var minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+      function walk(node) {
+        if (!Array.isArray(node)) return;
+        if (node.length >= 2 && typeof node[0] === "number" && typeof node[1] === "number") {
+          var x = Number(node[0]), y = Number(node[1]);
+          if (isFinite(x) && isFinite(y)) {
+            if (x < minLon) minLon = x;
+            if (x > maxLon) maxLon = x;
+            if (y < minLat) minLat = y;
+            if (y > maxLat) maxLat = y;
+          }
+          return;
+        }
+        for (var i = 0; i < node.length; i++) walk(node[i]);
+      }
+      walk(geom.coordinates);
+      if (!isFinite(minLon)) return null;
+      return [minLon, minLat, maxLon, maxLat];
+    }
+
+    function indexAdminBoundaries(fc) {
+      adminBoundariesGeoJson = fc;
+      adminBoundaryByProv = {};
+      adminBoundaryByKab = {};
+      if (!fc || !Array.isArray(fc.features)) return;
+      fc.features.forEach(function (feat) {
+        if (!feat || !feat.geometry) return;
+        var props = feat.properties || {};
+        var bbox = Array.isArray(props.bbox) && props.bbox.length === 4
+          ? props.bbox
+          : computeGeometryBboxJs(feat.geometry);
+        var lvl = props.level || props.adminLevel;
+        var pName = props.province || (lvl === "province" ? props.name : null);
+        var kName = props.kabupaten || (lvl === "kabupaten" ? props.name : null);
+        if (lvl === "province" && pName) {
+          adminBoundaryByProv[pName] = {
+            name: pName,
+            bpsCode: props.bpsCode || null,
+            region: props.region || null,
+            geometry: feat.geometry,
+            feature: feat,
+            bbox: bbox
+          };
+        } else if (lvl === "kabupaten" && kName) {
+          adminBoundaryByKab[kName] = {
+            name: kName,
+            province: props.province || null,
+            bpsCode: props.bpsCode || null,
+            parentBpsCode: props.parentBpsCode || props.provinceBpsCode || null,
+            region: props.region || null,
+            geometry: feat.geometry,
+            feature: feat,
+            bbox: bbox
+          };
+        }
+      });
+    }
+
+    function pointInRingJs(lon, lat, ring) {
+      if (!Array.isArray(ring) || ring.length < 3) return false;
+      var inside = false;
+      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        var xi = Number(ring[i][0]), yi = Number(ring[i][1]);
+        var xj = Number(ring[j][0]), yj = Number(ring[j][1]);
+        var dy = yj - yi;
+        if (Math.abs(dy) < 1e-12) continue;
+        var intersect = ((yi > lat) !== (yj > lat)) &&
+          (lon <= ((xj - xi) * (lat - yi)) / dy + xi + 1e-9);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function pointInPolygonCoordsJs(lon, lat, rings) {
+      if (!Array.isArray(rings) || !rings.length) return false;
+      if (!pointInRingJs(lon, lat, rings[0])) return false;
+      for (var h = 1; h < rings.length; h++) {
+        if (pointInRingJs(lon, lat, rings[h])) return false;
+      }
+      return true;
+    }
+
+    function pointInBoundaryGeometry(lon, lat, entryOrGeom) {
+      if (!entryOrGeom) return false;
+      var geom = entryOrGeom.geometry ? entryOrGeom.geometry : entryOrGeom;
+      if (!geom || !geom.type) return false;
+      var x = Number(lon), y = Number(lat);
+      if (!isFinite(x) || !isFinite(y)) return false;
+      var bbox = entryOrGeom.bbox || geom.bbox;
+      if (Array.isArray(bbox) && bbox.length === 4) {
+        if (x < bbox[0] - 1e-6 || x > bbox[2] + 1e-6 ||
+            y < bbox[1] - 1e-6 || y > bbox[3] + 1e-6) {
+          return false;
+        }
+      }
+      var coords = geom.coordinates || [];
+      if (geom.type === "Polygon") {
+        return pointInPolygonCoordsJs(x, y, coords);
+      }
+      if (geom.type === "MultiPolygon") {
+        for (var i = 0; i < coords.length; i++) {
+          if (pointInPolygonCoordsJs(x, y, coords[i])) return true;
+        }
+      }
+      return false;
+    }
+
+    function resolvePointAdmin(p) {
+      if (!p || typeof p !== "object") return { province: null, kabupaten: null };
+      if (p.province || p.kabupaten) {
+        var pNorm = normalizeProvinceName(p.province) || p.province || null;
+        var kNorm = normalizeKabupatenName(p.kabupaten) || p.kabupaten || null;
+        if (!pNorm && kNorm) pNorm = resolveKabupatenProvinceJs(kNorm);
+        return { province: pNorm, kabupaten: kNorm };
+      }
+      if (p._adminResolved && Object.keys(adminBoundaryByProv).length > 0) {
+        return { province: p._adminProv || null, kabupaten: p._adminKab || null };
+      }
+      var lon = Number(p.lon), lat = Number(p.lat);
+      var matchedProv = null;
+      var matchedKab = null;
+      var provNames = Object.keys(adminBoundaryByProv);
+      for (var i = 0; i < provNames.length; i++) {
+        var pName = provNames[i];
+        if (pointInBoundaryGeometry(lon, lat, adminBoundaryByProv[pName])) {
+          matchedProv = pName;
+          break;
+        }
+      }
+      var kabNames = Object.keys(adminBoundaryByKab);
+      for (var j = 0; j < kabNames.length; j++) {
+        var kName = kabNames[j];
+        var kEntry = adminBoundaryByKab[kName];
+        if (matchedProv && kEntry.province && kEntry.province !== matchedProv) continue;
+        if (pointInBoundaryGeometry(lon, lat, kEntry)) {
+          matchedKab = kName;
+          if (!matchedProv && kEntry.province) matchedProv = kEntry.province;
+          break;
+        }
+      }
+      if (provNames.length > 0) {
+        p._adminResolved = true;
+        p._adminProv = matchedProv;
+        p._adminKab = matchedKab;
+      }
+      return { province: matchedProv, kabupaten: matchedKab };
+    }
+
+    function pointMatchesProvince(p, provName) {
+      if (!provName) return true;
+      var normProv = normalizeProvinceName(provName) || provName;
+      if (p && p.province && (normalizeProvinceName(p.province) || p.province) === normProv) return true;
+      if (p && p.kabupaten) {
+        var kParent = resolveKabupatenProvinceJs(p.kabupaten);
+        if (kParent) return kParent === normProv;
+      }
+      var pEntry = adminBoundaryByProv[normProv];
+      if (pEntry) {
+        return pointInBoundaryGeometry(p.lon, p.lat, pEntry);
+      }
+      var resolved = resolvePointAdmin(p);
+      return resolved.province === normProv;
+    }
+
+    function pointMatchesKabupaten(p, kabName, activeProvName) {
+      if (!kabName) return true;
+      var normKab = normalizeKabupatenName(kabName) || kabName;
+      var kEntry = adminBoundaryByKab[normKab];
+      if (activeProvName) {
+        var normProv = normalizeProvinceName(activeProvName) || activeProvName;
+        var authParent = (kEntry && kEntry.province) || resolveKabupatenProvinceJs(normKab);
+        if (authParent && authParent !== normProv) return false;
+      }
+      if (p && p.kabupaten && (normalizeKabupatenName(p.kabupaten) || p.kabupaten) === normKab) return true;
+      if (kEntry) {
+        return pointInBoundaryGeometry(p.lon, p.lat, kEntry);
+      }
+      var resolved = resolvePointAdmin(p);
+      return resolved.kabupaten === normKab;
+    }
+
+    var _runtimeFreshnessOverrideMs = null;
+
+    function evaluateFirmsFreshnessRuntime(nowMs) {
+      if (nowMs != null && isFinite(Number(nowMs))) {
+        _runtimeFreshnessOverrideMs = Number(nowMs);
+      }
+      var refMs = _runtimeFreshnessOverrideMs != null ? _runtimeFreshnessOverrideMs : Date.now();
+      var env = (sourcesManifest && sourcesManifest.metrics && sourcesManifest.metrics["firms-hotspots"]) || null;
+      var avail = (env && env.availability) || {};
+      var lastSync = (pipelineStatus && pipelineStatus.lastSuccessfulSync) ||
+                     (firmsMeta && (firmsMeta.lastSuccessfulSync || firmsMeta.retrievedAt)) ||
+                     (env && env.updatedAt) ||
+                     avail.lastSuccessfulSync ||
+                     null;
+      var latestObs = (pipelineStatus && pipelineStatus.latestObservationUtc) ||
+                      (firmsMeta && (firmsMeta.latestObservationUtc || firmsMeta.newestDetectionUtc)) ||
+                      (window.hotspotHistory && window.hotspotHistory.freshness && window.hotspotHistory.freshness.newestDetectionUtc) ||
+                      avail.latestObservationUtc ||
+                      null;
+      var thresholdHours = Number(
+        (pipelineStatus && pipelineStatus.staleAfterHours) ||
+        avail.staleThresholdHours ||
+        6
+      );
+      if (!isFinite(thresholdHours) || thresholdHours <= 0) thresholdHours = 6;
+      var thresholdMinutes = thresholdHours * 60;
+
+      var syncMs = lastSync ? Date.parse(lastSync) : NaN;
+      var obsMs = latestObs ? Date.parse(latestObs) : NaN;
+      var syncAgeMinutes = isFinite(syncMs) ? Math.max(0, Math.round((refMs - syncMs) / 60000)) : null;
+      var observationAgeMinutes = isFinite(obsMs) ? Math.max(0, Math.round((refMs - obsMs) / 60000)) : null;
+
+      var explicitStale = Boolean(
+        (pipelineStatus && pipelineStatus.pipelineStatus === "stale") ||
+        (firmsMeta && firmsMeta.pipelineStatus === "stale")
+      );
+      var isStale = explicitStale || syncAgeMinutes === null || syncAgeMinutes > thresholdMinutes;
+      var stateStr = usingFallback ? "partial" : (isStale ? "stale" : "fresh");
+      var evaluatedIso = new Date(refMs).toISOString();
+
+      var reason = usingFallback
+        ? "Menampilkan fallback SIPONGI karena shard FIRMS kosong."
+        : (isStale
+          ? ("Sinkronisasi FIRMS melewati ambang kesegaran runtime (" +
+             (syncAgeMinutes != null ? (syncAgeMinutes + " menit > " + thresholdMinutes + " menit") : "waktu sinkronisasi tidak diketahui") +
+             "); menampilkan shard LKG terakhir.")
+          : ("Sinkronisasi FIRMS sehat (" + syncAgeMinutes + " menit lalu, ambang " + thresholdMinutes + " menit)."));
+
+      if (pipelineStatus && typeof pipelineStatus === "object") {
+        pipelineStatus.stale = isStale;
+        pipelineStatus.syncAgeMinutes = syncAgeMinutes;
+        pipelineStatus.observationAgeMinutes = observationAgeMinutes;
+        pipelineStatus.evaluatedAtUtc = evaluatedIso;
+      }
+      if (env && env.availability) {
+        env.availability.state = stateStr;
+        env.availability.fresh = (stateStr === "fresh");
+        env.availability.stale = isStale;
+        env.availability.lastKnownGood = isStale;
+        env.availability.syncAgeMinutes = syncAgeMinutes;
+        env.availability.observationAgeMinutes = observationAgeMinutes;
+        env.availability.staleThresholdHours = thresholdHours;
+        env.availability.evaluatedAtUtc = evaluatedIso;
+        env.availability.reason = reason;
+      }
+      if (window.hotspotHistory && window.hotspotHistory.freshness) {
+        window.hotspotHistory.freshness.state = stateStr;
+        window.hotspotHistory.freshness.fresh = (stateStr === "fresh");
+        window.hotspotHistory.freshness.stale = isStale;
+        window.hotspotHistory.freshness.lastKnownGood = isStale;
+        window.hotspotHistory.freshness.syncAgeMinutes = syncAgeMinutes;
+        window.hotspotHistory.freshness.observationAgeMinutes = observationAgeMinutes;
+        window.hotspotHistory.freshness.evaluatedAtUtc = evaluatedIso;
+        window.hotspotHistory.freshness.reason = reason;
+      }
+      return {
+        state: stateStr,
+        fresh: stateStr === "fresh",
+        stale: isStale,
+        lastKnownGood: isStale,
+        syncAgeMinutes: syncAgeMinutes,
+        observationAgeMinutes: observationAgeMinutes,
+        staleThresholdHours: thresholdHours,
+        lastSuccessfulSync: lastSync,
+        latestObservationUtc: latestObs,
+        evaluatedAtUtc: evaluatedIso,
+        reason: reason
+      };
+    }
+
+    function scopeHotspotCountForDate(date) {
+      if (!date) return 0;
+      if (state.kab || state.prov) {
+        if (state.kab && state.prov) {
+          var authProv = resolveKabupatenProvinceJs(state.kab);
+          if (authProv && authProv !== state.prov) return 0;
+        }
+        var hh = (typeof hotspotHistory !== "undefined" && hotspotHistory) ? hotspotHistory : window.hotspotHistory;
+        if (date === currentDate() && Array.isArray(firms) && firms.length > 0 && (state.conf || state.platform || !hh)) {
+          return firmsForView().length;
+        }
+        if (hh && Array.isArray(hh.utcDaily)) {
+          for (var i = 0; i < hh.utcDaily.length; i++) {
+            var dayEntry = hh.utcDaily[i];
+            if (dayEntry && dayEntry.date === date) {
+              if (state.kab) {
+                var kBucket = dayEntry.byKabupaten && dayEntry.byKabupaten[state.kab];
+                if (kBucket) {
+                  if (state.conf && kBucket.byConfidence) return Number(kBucket.byConfidence[state.conf] || 0);
+                  if (state.platform && kBucket.byPlatform) return Number(kBucket.byPlatform[state.platform] || 0);
+                  return Number(kBucket.count || 0);
+                }
+                return 0;
+              }
+              if (state.prov) {
+                var pBucket = dayEntry.byProvince && dayEntry.byProvince[state.prov];
+                if (pBucket) {
+                  if (state.conf && pBucket.byConfidence) return Number(pBucket.byConfidence[state.conf] || 0);
+                  if (state.platform && pBucket.byPlatform) return Number(pBucket.byPlatform[state.platform] || 0);
+                  return Number(pBucket.count || 0);
+                }
+                return 0;
+              }
+            }
+          }
+        }
+        if (date === currentDate() && Array.isArray(firms) && firms.length > 0) {
+          return firmsForView().length;
+        }
+        return 0;
+      }
+      if (date === currentDate() && Array.isArray(firms) && firms.length > 0 && (state.conf || state.platform)) {
+        return firmsForView().length;
+      }
+      return state.region === "indonesia" ? nationalCountForDate(date) : regionCountForDate(state.region, date);
     }
 
     function updateKabupatenOptions(regionId, provName) {
@@ -1778,7 +2164,7 @@
           var regEntry = adminIndex.regions[regionId];
           if (provName && regEntry.kabupatenByProvince && regEntry.kabupatenByProvince[provName]) {
             kabs = regEntry.kabupatenByProvince[provName] || [];
-          } else {
+          } else if (!provName) {
             kabs = regEntry.kabupaten || [];
           }
         }
@@ -1871,9 +2257,8 @@
       var rawProv = normalizeProvinceName(params.get("prov"));
       if (rawProv) {
         if (state.region === "indonesia") {
-          regions.forEach(function (r) {
-            if ((r.provinces || []).indexOf(rawProv) !== -1) state.region = r.id;
-          });
+          var pReg = resolveProvinceRegionJs(rawProv);
+          if (pReg) state.region = pReg;
         }
         var allowed = state.region === "indonesia"
           ? []
@@ -1884,7 +2269,19 @@
       }
 
       var rawKab = normalizeKabupatenName(params.get("kab"));
-      if (rawKab) state.kab = rawKab;
+      if (rawKab) {
+        var authParentProv = resolveKabupatenProvinceJs(rawKab);
+        if (authParentProv && (!state.prov || state.prov === authParentProv)) {
+          state.kab = rawKab;
+          if (!state.prov) state.prov = authParentProv;
+          if (state.region === "indonesia") {
+            var kReg = resolveProvinceRegionJs(authParentProv);
+            if (kReg) state.region = kReg;
+          }
+        } else if (!authParentProv) {
+          state.kab = rawKab;
+        }
+      }
 
       var rawWin = (params.get("window") || "all").toLowerCase();
       state.window = ["1d", "4d", "7d", "all"].indexOf(rawWin) !== -1 ? rawWin : "all";
@@ -1975,11 +2372,25 @@
         };
       }
       var regEntry = adminIndex.regions[state.region];
+      if (!regEntry && state.prov) {
+        var resolvedReg = resolveProvinceRegionJs(state.prov);
+        if (resolvedReg) regEntry = adminIndex.regions[resolvedReg];
+      }
       if (!regEntry || !regEntry.concessions) {
         return { state: "unavailable", badge: "UNAVAILABLE", count: null, meta: "Inventaris wilayah tidak tersedia.", period: "—" };
       }
       var c = regEntry.concessions;
       if (state.kab) {
+        var authParent = resolveKabupatenProvinceJs(state.kab);
+        if (state.prov && authParent && authParent !== state.prov) {
+          return {
+            state: "unavailable",
+            badge: "HIERARCHY MISMATCH",
+            count: 0,
+            meta: "Kab. " + state.kab + " berada di Prov. " + authParent + ", bukan " + state.prov + ".",
+            period: regEntry.label
+          };
+        }
         var kabCount = (c.byKabupaten && c.byKabupaten[state.kab] != null) ? Number(c.byKabupaten[state.kab]) : 0;
         return {
           state: "partial",
@@ -1987,7 +2398,7 @@
           count: kabCount,
           meta: "Kab. " + state.kab + " · " + (c.unmappedKabupatenCount || 0).toLocaleString("id-ID") +
                 " record kehutanan/GFW di wilayah ini tidak memiliki atribut kabupaten",
-          period: regEntry.label + " · interseksi atribut"
+          period: regEntry.label + " · kode BPS otoritatif"
         };
       }
       if (state.prov) {
@@ -2020,65 +2431,52 @@
 
       var curDate = currentDate();
       var winDates = activeDatesForWindow();
-      var isStale = (pipelineStatus && (pipelineStatus.stale || pipelineStatus.pipelineStatus === "stale")) ||
-                    (firmsMeta && (firmsMeta.stale || firmsMeta.pipelineStatus === "stale"));
+      var freshness = evaluateFirmsFreshnessRuntime();
+      var isStale = freshness.stale;
 
-      if (state.prov || state.kab) {
-        // Issue #11 & #19: Never silently substitute island totals for province/kabupaten
-        if (hValEl) {
-          hValEl.textContent = "DATA UNAVAILABLE";
-          hValEl.className = "kpi-card-value unavailable";
-        }
-        if (hBadgeEl) {
-          hBadgeEl.textContent = "UNAVAILABLE (SCOPE)";
-          hBadgeEl.className = "avail-badge unavailable";
-        }
-        if (hMetaEl) {
-          var subScope = state.kab ? ("Kab. " + state.kab) : ("Prov. " + state.prov);
-          var islandCount = regionCountForDate(state.region, curDate);
-          hMetaEl.textContent = "Shard FIRMS dipartisi per wilayah pulau (" +
-            ((regionById[state.region] || {}).label || state.region) + ": " +
-            islandCount.toLocaleString("id-ID") + " deteksi pada " + (curDate || "—") +
-            "). Total pulau tidak disubstitusi untuk " + subScope + ".";
-        }
-        if (hPeriodEl) hPeriodEl.textContent = "Poligon admin-1/2 diperlukan";
-      } else {
-        var dayCount = state.region === "indonesia"
-          ? nationalCountForDate(curDate)
-          : regionCountForDate(state.region, curDate);
-        var windowTotal = winDates.reduce(function (acc, d) {
-          return acc + (state.region === "indonesia" ? nationalCountForDate(d) : regionCountForDate(state.region, d));
-        }, 0);
-        var allDates = (state.dates || []).slice().sort();
-        var curIdx = allDates.indexOf(curDate);
-        var prevDate = curIdx > 0 ? allDates[curIdx - 1] : null;
-        var prevCount = prevDate
-          ? (state.region === "indonesia" ? nationalCountForDate(prevDate) : regionCountForDate(state.region, prevDate))
-          : null;
-        var deltaText = "";
-        if (prevCount != null && prevCount > 0) {
-          var diff = dayCount - prevCount;
-          var pct = ((diff / prevCount) * 100).toFixed(1);
-          deltaText = " · " + (diff >= 0 ? "+" : "") + diff.toLocaleString("id-ID") + " (" + (diff >= 0 ? "+" : "") + pct + "% vs " + prevDate + ")";
-        }
-        if (hValEl) {
-          hValEl.textContent = (state.window === "1d" ? dayCount : windowTotal).toLocaleString("id-ID") + " deteksi";
-          hValEl.className = "kpi-card-value fire";
-        }
-        if (hBadgeEl) {
-          var badgeState = usingFallback ? "partial" : (isStale ? "stale" : "fresh");
-          hBadgeEl.textContent = usingFallback ? "FALLBACK SIPONGI" : (isStale ? "STALE (LKG)" : (dayCount === 0 ? "OBSERVED 0" : "FRESH · NRT"));
-          hBadgeEl.className = "avail-badge " + badgeState;
-        }
-        if (hMetaEl) {
-          hMetaEl.textContent = "Hari aktif (" + (curDate || "—") + "): " + dayCount.toLocaleString("id-ID") + deltaText +
-            " · S-NPP, NOAA-20, NOAA-21";
-        }
-        if (hPeriodEl) {
-          hPeriodEl.textContent = winDates.length > 1
-            ? (winDates[0] + " → " + winDates[winDates.length - 1] + " (" + winDates.length + "d UTC)")
-            : ((curDate || "—") + " (UTC)");
-        }
+      var dayCount = scopeHotspotCountForDate(curDate);
+      var windowTotal = winDates.reduce(function (acc, d) {
+        return acc + scopeHotspotCountForDate(d);
+      }, 0);
+      var allDates = (state.dates || []).slice().sort();
+      var curIdx = allDates.indexOf(curDate);
+      var prevDate = curIdx > 0 ? allDates[curIdx - 1] : null;
+      var isConsecutivePrev = false;
+      if (prevDate && curDate) {
+        var d1 = Date.parse(prevDate + "T00:00:00Z");
+        var d2 = Date.parse(curDate + "T00:00:00Z");
+        isConsecutivePrev = isFinite(d1) && isFinite(d2) && Math.round((d2 - d1) / 86400000) === 1;
+      }
+      var prevCount = isConsecutivePrev ? scopeHotspotCountForDate(prevDate) : null;
+      var deltaText = "";
+      if (prevCount != null && prevCount > 0) {
+        var diff = dayCount - prevCount;
+        var pct = ((diff / prevCount) * 100).toFixed(1);
+        deltaText = " · " + (diff >= 0 ? "+" : "") + diff.toLocaleString("id-ID") + " (" + (diff >= 0 ? "+" : "") + pct + "% vs " + prevDate + ")";
+      } else if (prevDate && !isConsecutivePrev) {
+        deltaText = " · jeda tanggal sebelum " + curDate;
+      }
+      if (hValEl) {
+        hValEl.textContent = (state.window === "1d" ? dayCount : windowTotal).toLocaleString("id-ID") + " deteksi";
+        hValEl.className = "kpi-card-value fire";
+      }
+      if (hBadgeEl) {
+        var badgeState = usingFallback ? "partial" : (isStale ? "stale" : "fresh");
+        var scopeSuffix = state.kab ? " · KAB" : (state.prov ? " · PROV" : "");
+        hBadgeEl.textContent = usingFallback
+          ? "FALLBACK SIPONGI"
+          : (isStale ? ("STALE (LKG)" + scopeSuffix) : (dayCount === 0 ? ("OBSERVED 0" + scopeSuffix) : ("FRESH · NRT" + scopeSuffix)));
+        hBadgeEl.className = "avail-badge " + badgeState;
+      }
+      if (hMetaEl) {
+        var scopeLabel = state.kab ? ("Kab. " + state.kab) : (state.prov ? ("Prov. " + state.prov) : ((regionById[state.region] || {}).label || "Indonesia"));
+        hMetaEl.textContent = scopeLabel + " (" + (curDate || "—") + "): " + dayCount.toLocaleString("id-ID") + deltaText +
+          (freshness.syncAgeMinutes != null ? " · sinkron " + freshness.syncAgeMinutes + "m lalu" : " · S-NPP, NOAA-20, NOAA-21");
+      }
+      if (hPeriodEl) {
+        hPeriodEl.textContent = winDates.length > 1
+          ? (winDates[0] + " → " + winDates[winDates.length - 1] + " (" + winDates.length + "d UTC)")
+          : ((curDate || "—") + " (UTC)");
       }
 
       // KPI 2: Concessions
@@ -2103,7 +2501,7 @@
       if (cMetaEl) cMetaEl.textContent = concSummary.meta || "";
       if (cPeriodEl) cPeriodEl.textContent = concSummary.period || "BIG & GFW";
 
-      // KPI 3: Dossiers & WALHI Claims
+      // KPI 3: Dossiers & WALHI Claims (#7: CURATED / INVESTIGATIVE)
       var dValEl = document.getElementById("kpi-dossiers-val");
       var dMetaEl = document.getElementById("kpi-dossiers-meta");
       var dBadgeEl = document.getElementById("kpi-dossiers-badge");
@@ -2127,15 +2525,15 @@
           dValEl.className = "kpi-card-value";
         }
         if (dBadgeEl) {
-          dBadgeEl.textContent = state.prov ? "PARTIAL (PROV)" : "OFFICIAL OSINT";
-          dBadgeEl.className = "avail-badge " + (state.prov ? "partial" : "official");
+          dBadgeEl.textContent = state.prov ? "PARTIAL · INVESTIGATIVE" : "CURATED · INVESTIGATIVE";
+          dBadgeEl.className = "avail-badge " + (state.prov ? "partial" : "curated");
         }
         if (dMetaEl) {
           if (state.prov) {
-            dMetaEl.textContent = matchingDossiers.length + " dossier di " + state.prov +
+            dMetaEl.textContent = matchingDossiers.length + " dossier investigatif di " + state.prov +
               " (" + islandOnlyDossiers + " dossier sawit berlabel pulau 'Kalimantan' tidak dimasukkan diam-diam).";
           } else {
-            dMetaEl.textContent = "Klaim WALHI Kalimantan: 25.524 / 34.262 hotspot (74%) di konsesi · terpisah dari FIRMS live.";
+            dMetaEl.textContent = "Klaim WALHI Kalimantan (kurasi OSINT, bukan inventaris resmi pemerintah): 25.524 / 34.262 hotspot (74%) di konsesi.";
           }
         }
         if (dPeriodEl) dPeriodEl.textContent = "WALHI · 1 Jan – 27 Jul 2026";
@@ -2160,15 +2558,12 @@
         cap.textContent = 'Percobaan sync: ' + (fMeta.lastAttemptedSync || '—') + ' · Sync berhasil: ' + (fMeta.lastSuccessfulSync || '—') + ' · Obs satelit terbaru: ' + (fMeta.newestDetectionUtc || '—') + ' (Snapshot Git dapat lebih lama dari artefak runtime GitHub Pages per jam).';
       }
       return;
-      var scopeName = state.region === "indonesia" ? "Indonesia" : ((regionById[state.region] || {}).label || state.region);
+      var scopeName = state.kab
+        ? ("Kab. " + state.kab)
+        : (state.prov
+          ? ("Prov. " + state.prov)
+          : (state.region === "indonesia" ? "Indonesia" : ((regionById[state.region] || {}).label || state.region)));
       if (titleEl) titleEl.textContent = "Tren Harian Deteksi Panas · " + scopeName;
-
-      if (state.prov || state.kab) {
-        wrap.innerHTML = '<div class="caveat" style="margin:4px 0"><strong>DATA UNAVAILABLE PADA RESOLUSI SUB-WILAYAH</strong><br/>Deret waktu harian FIRMS tidak diinterpolasi atau disubstitusi dengan total pulau ketika filter provinsi/kabupaten (' +
-          escapeHtml(state.kab || state.prov) + ') aktif.</div>';
-        if (cap) cap.textContent = "Hapus filter provinsi/kabupaten untuk melihat deret waktu harian tingkat wilayah/nasional.";
-        return;
-      }
 
       var dates = activeDatesForWindow();
       if (!dates.length) {
@@ -2176,8 +2571,7 @@
         return;
       }
       var series = dates.map(function (d) {
-        var c = state.region === "indonesia" ? nationalCountForDate(d) : regionCountForDate(state.region, d);
-        return { date: d, count: c };
+        return { date: d, count: scopeHotspotCountForDate(d) };
       });
       var maxVal = series.reduce(function (m, item) { return Math.max(m, item.count); }, 1);
       var w = 360, h = 74, padL = 8, padR = 8, padT = 14, padB = 18;
@@ -2213,7 +2607,7 @@
         });
       });
       if (cap) {
-        cap.textContent = "Sumber: NASA FIRMS VIIRS (S-NPP, NOAA-20, NOAA-21) · Grain: harian (UTC) · Klik batang untuk memilih tanggal.";
+        cap.textContent = "Sumber: NASA FIRMS VIIRS · Cakupan: " + scopeName + " (point-in-polygon admin BPS) · Klik batang untuk memilih tanggal.";
       }
     }
 
@@ -2224,10 +2618,16 @@
       var allDates = (state.dates || []).slice().sort();
       var curIdx = allDates.indexOf(curDate);
       var prevDate = curIdx > 0 ? allDates[curIdx - 1] : null;
+      var isConsecutivePrev = false;
+      if (prevDate && curDate) {
+        var d1 = Date.parse(prevDate + "T00:00:00Z");
+        var d2 = Date.parse(curDate + "T00:00:00Z");
+        isConsecutivePrev = isFinite(d1) && isFinite(d2) && Math.round((d2 - d1) / 86400000) === 1;
+      }
 
       var rows = regions.map(function (r) {
         var today = regionCountForDate(r.id, curDate);
-        var prev = prevDate ? regionCountForDate(r.id, prevDate) : null;
+        var prev = isConsecutivePrev ? regionCountForDate(r.id, prevDate) : null;
         var diff = prev != null ? today - prev : null;
         var diffStr = diff == null ? "—" : ((diff >= 0 ? "+" : "") + diff.toLocaleString("id-ID"));
         var invCount = (adminIndex && adminIndex.regions && adminIndex.regions[r.id] && adminIndex.regions[r.id].concessions)
@@ -2239,7 +2639,7 @@
           '<td class="num">' + today.toLocaleString("id-ID") + '</td>' +
           '<td class="num">' + diffStr + '</td>' +
           '<td class="num">' + Number(invCount || 0).toLocaleString("id-ID") + '</td>' +
-          '<td><span class="avail-badge ' + (r.id === "kalimantan" ? "official" : "unavailable") + '">' + (r.id === "kalimantan" ? "12 DOSSIER" : "INV ONLY") + '</span></td>' +
+          '<td><span class="avail-badge ' + (r.id === "kalimantan" ? "curated" : "unavailable") + '">' + (r.id === "kalimantan" ? "12 DOSSIER (CURATED)" : "INV ONLY") + '</span></td>' +
         '</tr>';
       }).join("");
 
@@ -2261,7 +2661,10 @@
 
     function renderMetricEnvelopeHtml(env) {
       if (!env) return '<div class="insp-empty">Metadata metrik tidak ditemukan.</div>';
+      if (env.id === "firms-hotspots") evaluateFirmsFreshnessRuntime();
       var avail = env.availability || {};
+      var prov = env.provenance || {};
+      var verif = env.verification || {};
       var obs = env.observationPeriod || {};
       var scope = env.scope || {};
       var valText = avail.state === "unavailable"
@@ -2270,21 +2673,26 @@
       var caveatsHtml = (env.caveats || []).map(function (c) {
         return '<div class="caveat">' + escapeHtml(c) + '</div>';
       }).join("");
+      var provCategory = prov.category || avail.quality || "UNAVAILABLE";
+      var badgeProvCat = provCategory === "civil_society_investigative" ? "INVESTIGATIVE" : provCategory;
+      var verifStatus = verif.status || (badgeProvCat === "OFFICIAL" ? "VERIFIED_OFFICIAL" : (badgeProvCat === "INVESTIGATIVE" || badgeProvCat === "CURATED" ? "CURATED_OSINT" : "UNVERIFIED"));
+      var verifBasis = verif.basis || "Lihat metodologi sumber";
       return '<article class="env-card" data-envelope-id="' + escapeHtml(env.id) + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">' +
           '<span class="tag amber">' + escapeHtml(env.layerType || "Layer") + '</span>' +
-          '<span class="avail-badge ' + escapeHtml(avail.state || "unavailable") + '">' + escapeHtml((avail.state || "unavailable").toUpperCase()) + ' · ' + escapeHtml(avail.quality || "") + '</span>' +
+          '<span class="avail-badge ' + escapeHtml(avail.state || "unavailable") + '">' + escapeHtml((avail.state || "unavailable").toUpperCase()) + ' · ' + escapeHtml(badgeProvCat) + '</span>' +
         '</div>' +
         '<h3>' + escapeHtml(env.title) + '</h3>' +
         '<dl class="kv">' +
           '<dt>Nilai saat ini</dt><dd>' + escapeHtml(valText) + '</dd>' +
-          '<dt>Sumber</dt><dd><a href="' + escapeHtml(env.url || "#") + '" target="_blank" rel="noopener">' + escapeHtml(env.source) + ' ↗</a></dd>' +
+          '<dt>Ketersediaan (Availability)</dt><dd>' + escapeHtml((avail.state || "unavailable").toUpperCase()) + ' — ' + escapeHtml(avail.reason || "Sehat & tervalidasi") + '</dd>' +
+          '<dt>Asal Sumber (Provenance)</dt><dd><strong>' + escapeHtml(provCategory) + '</strong> · <a href="' + escapeHtml(prov.sourceUrl || env.url || "#") + '" target="_blank" rel="noopener">' + escapeHtml(prov.source || env.source) + ' ↗</a></dd>' +
+          '<dt>Status Verifikasi (Verification)</dt><dd><strong>' + escapeHtml(verifStatus) + '</strong> — ' + escapeHtml(verifBasis) + '</dd>' +
           '<dt>Produk / versi</dt><dd>' + escapeHtml(env.product) + ' (v' + escapeHtml(env.version) + ')</dd>' +
           '<dt>Periode observasi</dt><dd>' + escapeHtml(obs.label || "—") + '</dd>' +
           '<dt>Sinkronisasi</dt><dd>' + escapeHtml(env.updatedAt ? formatWib(env.updatedAt, true) + " (" + env.updatedAt + ")" : "Belum tersedia") + '</dd>' +
           '<dt>Resolusi cakupan</dt><dd>' + escapeHtml((scope.supportedGranularities || []).join(", ")) + '</dd>' +
           '<dt>Frekuensi / unit</dt><dd>' + escapeHtml(env.granularity + " · " + env.units) + '</dd>' +
-          '<dt>Status / alasan</dt><dd>' + escapeHtml(avail.reason || "Sehat & tervalidasi") + '</dd>' +
         '</dl>' +
         caveatsHtml +
       '</article>';
@@ -2293,6 +2701,7 @@
     function renderDataCatalogView() {
       var grid = document.getElementById("data-view-grid");
       if (!grid) return;
+      evaluateFirmsFreshnessRuntime();
       var metrics = (sourcesManifest && sourcesManifest.metrics) ? sourcesManifest.metrics : {};
       var keys = Object.keys(metrics);
       if (!keys.length) {
@@ -2307,6 +2716,7 @@
       var body = document.getElementById("provenance-drawer-body");
       var title = document.getElementById("provenance-drawer-title");
       if (!drawer || !body) return;
+      evaluateFirmsFreshnessRuntime();
       var metrics = (sourcesManifest && sourcesManifest.metrics) ? sourcesManifest.metrics : {};
       if (metricId && metrics[metricId]) {
         if (title) title.textContent = "Provenance · " + metrics[metricId].title;
@@ -2331,6 +2741,7 @@
 
     adminIndex = adminIndexPayload;
     sourcesManifest = sourcesManifestPayload;
+    indexAdminBoundaries(adminBoundariesPayload);
 
     /* ==========================================================================
        MERATUS v2 Wave 3 (#16, #17, #18): Durable History, Deltas & Reusable Chart
@@ -2375,11 +2786,22 @@
 
     function extractBucketFilteredCountJs(bucket, platform, conf, useSameTod) {
       if (!bucket) return 0;
-      if (useSameTod && !platform && !conf) {
-        return Number(bucket.sameTodCount != null ? bucket.sameTodCount : (bucket.count || 0));
-      }
       var plat = String(platform || "").trim().toUpperCase();
       var cf = String(conf || "").trim().toLowerCase();
+      if (useSameTod) {
+        if (plat && cf && bucket.sameTodByPlatformConfidence) {
+          return Number(bucket.sameTodByPlatformConfidence[plat + "|" + cf] || 0);
+        }
+        if (plat && bucket.sameTodByPlatform) {
+          return Number(bucket.sameTodByPlatform[plat] || 0);
+        }
+        if (cf && bucket.sameTodByConfidence) {
+          return Number(bucket.sameTodByConfidence[cf] || 0);
+        }
+        if (!plat && !cf) {
+          return Number(bucket.sameTodCount != null ? bucket.sameTodCount : (bucket.count || 0));
+        }
+      }
       if (plat && cf && bucket.byPlatformConfidence) {
         return Number(bucket.byPlatformConfidence[plat + "|" + cf] || 0);
       }
@@ -2390,6 +2812,28 @@
         return Number(bucket.byConfidence[cf] || 0);
       }
       return Number(bucket.count || 0);
+    }
+
+    function areDatesConsecutiveJs(prevDateStr, currDateStr) {
+      if (!prevDateStr || !currDateStr) return false;
+      var d1 = Date.parse(String(prevDateStr).slice(0, 10) + "T00:00:00Z");
+      var d2 = Date.parse(String(currDateStr).slice(0, 10) + "T00:00:00Z");
+      if (!isFinite(d1) || !isFinite(d2)) return false;
+      return Math.round((d2 - d1) / 86400000) === 1;
+    }
+
+    function areObservationPeriodsComparableJs(prevPt, currPt) {
+      if (!prevPt || !currPt) return false;
+      if (prevPt.status !== "complete" || currPt.status !== "complete") return false;
+      if (prevPt.rawVal == null || currPt.rawVal == null) return false;
+      if (!areDatesConsecutiveJs(prevPt.date, currPt.date)) return false;
+      var vfPrev = String(prevPt.validFrom || "");
+      var vtPrev = String(prevPt.validTo || "");
+      var vfCurr = String(currPt.validFrom || "");
+      var vtCurr = String(currPt.validTo || "");
+      if (vfPrev.slice(10) !== "T00:00:00" || vfCurr.slice(10) !== "T00:00:00") return false;
+      if (vtPrev.slice(10) !== "T23:59:59" || vtCurr.slice(10) !== "T23:59:59") return false;
+      return true;
     }
 
     function getActiveScopeLabel() {
@@ -2414,7 +2858,16 @@
       var win = opts.window != null ? opts.window : (state.window || "all");
       var plat = opts.platform != null ? opts.platform : (state.platform || "");
       var conf = opts.conf != null ? opts.conf : (state.conf || "");
-      var scopeLabel = getActiveScopeLabel();
+      var normProv = prov ? (normalizeProvinceName(prov) || prov) : "";
+      var normKab = kab ? (normalizeKabupatenName(kab) || kab) : "";
+      var scopeParts = [
+        reg === "indonesia"
+          ? "Indonesia"
+          : ((regionById[reg] || {}).label || reg)
+      ];
+      if (normProv) scopeParts.push(normProv);
+      if (normKab) scopeParts.push(normKab);
+      var scopeLabel = scopeParts.join(" · ");
 
       if (mId !== "firms-hotspots") {
         var specs = {
@@ -2454,7 +2907,7 @@
           updatedAt: null,
           newestObservationAt: null,
           coverage: {
-            scopeId: kab || prov || reg,
+            scopeId: normKab || normProv || reg,
             scopeLabel: scopeLabel,
             requestedWindow: win,
             completeness: "unavailable",
@@ -2464,28 +2917,31 @@
         };
       }
 
-      if (prov || kab) {
-        return {
-          seriesId: "firms-hotspots:" + reg + ":" + prov + ":" + kab,
-          metricId: "firms-hotspots",
-          title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
-          sourceId: "firms-hotspots",
-          sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
-          units: "detections",
-          granularity: "day",
-          aggregationMode: aggMode,
-          timezone: tzMode,
-          updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
-          newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
-          coverage: {
-            scopeId: kab || prov,
-            scopeLabel: scopeLabel,
-            requestedWindow: win,
-            completeness: "unavailable",
-            reason: "Shard observasi NASA FIRMS dikelompokkan per 7 wilayah logis (pulau/kepulauan) tanpa poligon batas provinsi/kabupaten. Total pulau tidak pernah disubstitusikan untuk filter sub-pulau."
-          },
-          points: []
-        };
+      if (normProv && normKab && typeof resolveKabupatenProvinceJs === "function") {
+        var authParentProv = resolveKabupatenProvinceJs(normKab);
+        if (authParentProv && authParentProv !== normProv) {
+          return {
+            seriesId: "firms-hotspots:" + reg + ":" + normProv + ":" + normKab,
+            metricId: "firms-hotspots",
+            title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
+            sourceId: "firms-hotspots",
+            sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+            units: "detections",
+            granularity: "day",
+            aggregationMode: aggMode,
+            timezone: tzMode,
+            updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
+            newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
+            coverage: {
+              scopeId: normKab,
+              scopeLabel: scopeLabel,
+              requestedWindow: win,
+              completeness: "unavailable",
+              reason: "Kabupaten/Kota " + normKab + " secara otoritatif berada di Provinsi " + authParentProv + ", bukan " + normProv + "."
+            },
+            points: []
+          };
+        }
       }
 
       var rawDaily = [];
@@ -2516,6 +2972,35 @@
         });
       }
 
+      if ((normProv || normKab) && rawDaily.length) {
+        var hasAdminBuckets = rawDaily.some(function (dObj) {
+          return dObj && (dObj.byProvince || dObj.byKabupaten);
+        });
+        if (!hasAdminBuckets) {
+          return {
+            seriesId: "firms-hotspots:" + reg + ":" + normProv + ":" + normKab,
+            metricId: "firms-hotspots",
+            title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
+            sourceId: "firms-hotspots",
+            sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+            units: "detections",
+            granularity: "day",
+            aggregationMode: aggMode,
+            timezone: tzMode,
+            updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
+            newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
+            coverage: {
+              scopeId: normKab || normProv,
+              scopeLabel: scopeLabel,
+              requestedWindow: win,
+              completeness: "unavailable",
+              reason: "Bucket deret waktu tingkat provinsi/kabupaten belum tersedia pada artefak riwayat yang dimuat."
+            },
+            points: []
+          };
+        }
+      }
+
       if (!rawDaily.length) {
         return {
           seriesId: "firms-hotspots:empty",
@@ -2530,7 +3015,7 @@
           updatedAt: null,
           newestObservationAt: null,
           coverage: {
-            scopeId: reg,
+            scopeId: normKab || normProv || reg,
             scopeLabel: scopeLabel,
             requestedWindow: win,
             completeness: "unavailable",
@@ -2563,7 +3048,14 @@
             status: "gap"
           });
         } else {
-          var bkt = reg === "indonesia" ? dayObj.national : (dayObj.regions && dayObj.regions[reg]);
+          var bkt = null;
+          if (normKab) {
+            bkt = (dayObj.byKabupaten && dayObj.byKabupaten[normKab]) || { count: 0, sameTodCount: 0 };
+          } else if (normProv) {
+            bkt = (dayObj.byProvince && dayObj.byProvince[normProv]) || { count: 0, sameTodCount: 0 };
+          } else {
+            bkt = reg === "indonesia" ? dayObj.national : (dayObj.regions && dayObj.regions[reg]);
+          }
           var val = extractBucketFilteredCountJs(bkt, plat, conf, false);
           var todVal = extractBucketFilteredCountJs(bkt, plat, conf, true);
           var st = String(dayObj.completeness || "complete");
@@ -2586,7 +3078,7 @@
           p.deltaAbs = null;
           p.deltaPct = null;
           p.deltaComparable = false;
-        } else if (p.status === "complete" && continuous[i - 1].status === "complete") {
+        } else if (areObservationPeriodsComparableJs(continuous[i - 1], p)) {
           var dm = computeDeltaMetricsJs(p.rawVal, continuous[i - 1].rawVal);
           p.deltaAbs = dm.deltaAbs;
           p.deltaPct = dm.deltaPct;
@@ -2598,42 +3090,81 @@
         }
       }
 
-      var completeDays = continuous.filter(function (x) { return x.status === "complete" && x.rawVal != null; });
+      var latestCompleteIdx = -1;
+      for (var k = continuous.length - 1; k >= 0; k--) {
+        if (continuous[k].status === "complete" && continuous[k].rawVal != null) {
+          latestCompleteIdx = k;
+          break;
+        }
+      }
       var completeDod = null;
-      if (completeDays.length >= 2) {
-        var cCurr = completeDays[completeDays.length - 1];
-        var cPrev = completeDays[completeDays.length - 2];
-        var cdm = computeDeltaMetricsJs(cCurr.rawVal, cPrev.rawVal);
-        completeDod = {
-          currentDate: cCurr.date,
-          previousDate: cPrev.date,
-          current: cdm.current,
-          previous: cdm.previous,
-          deltaAbs: cdm.deltaAbs,
-          deltaPct: cdm.deltaPct,
-          denominatorZero: cdm.denominatorZero,
-          comparable: cdm.comparable
-        };
+      if (latestCompleteIdx >= 0) {
+        var cCurr = continuous[latestCompleteIdx];
+        var prevIdx = latestCompleteIdx - 1;
+        if (prevIdx >= 0 && areObservationPeriodsComparableJs(continuous[prevIdx], cCurr)) {
+          var cPrev = continuous[prevIdx];
+          var cdm = computeDeltaMetricsJs(cCurr.rawVal, cPrev.rawVal);
+          completeDod = {
+            currentDate: cCurr.date,
+            previousDate: cPrev.date,
+            current: cdm.current,
+            previous: cdm.previous,
+            deltaAbs: cdm.deltaAbs,
+            deltaPct: cdm.deltaPct,
+            denominatorZero: cdm.denominatorZero,
+            comparable: cdm.comparable,
+            reason: cdm.reason
+          };
+        } else if (prevIdx >= 0) {
+          var adjPrev = continuous[prevIdx];
+          completeDod = {
+            currentDate: cCurr.date,
+            previousDate: adjPrev.date,
+            current: cCurr.rawVal,
+            previous: adjPrev.rawVal,
+            deltaAbs: null,
+            deltaPct: null,
+            denominatorZero: false,
+            comparable: false,
+            reason: adjPrev.status === "gap" ? "non_consecutive_dates_gap" : "incomparable_observation_period"
+          };
+        }
       }
 
       var sameTodComp = null;
-      if (continuous.length >= 2 && !plat && !conf) {
+      if (continuous.length >= 2) {
         var lPt = continuous[continuous.length - 1];
         var pPt = continuous[continuous.length - 2];
-        if (lPt.status !== "gap" && pPt.status !== "gap") {
-          var cutoffRaw = (hotspotHistory && (tzMode === "Asia/Jakarta" ? hotspotHistory.wibTodCutoff : hotspotHistory.utcTodCutoff)) || "2359";
+        var cutoffRaw = (hotspotHistory && (tzMode === "Asia/Jakarta" ? hotspotHistory.wibTodCutoff : hotspotHistory.utcTodCutoff)) || "2359";
+        var cutoffLabel = String(cutoffRaw).slice(0, 2) + ":" + String(cutoffRaw).slice(2, 4) + " " + tzMode;
+        if (lPt.status !== "gap" && pPt.status !== "gap" && areDatesConsecutiveJs(pPt.date, lPt.date) && lPt.sameTodValue != null && pPt.sameTodValue != null) {
           var sdm = computeDeltaMetricsJs(lPt.sameTodValue, pPt.sameTodValue);
           sameTodComp = {
             currentDate: lPt.date,
             previousDate: pPt.date,
-            cutoffTime: String(cutoffRaw).slice(0, 2) + ":" + String(cutoffRaw).slice(2, 4) + " " + tzMode,
+            cutoffTime: cutoffLabel,
             latestDayStatus: lPt.status,
             current: sdm.current,
             previous: sdm.previous,
             deltaAbs: sdm.deltaAbs,
             deltaPct: sdm.deltaPct,
             denominatorZero: sdm.denominatorZero,
-            comparable: sdm.comparable
+            comparable: sdm.comparable,
+            reason: sdm.reason
+          };
+        } else if (lPt.status !== "gap") {
+          sameTodComp = {
+            currentDate: lPt.date,
+            previousDate: pPt.date,
+            cutoffTime: cutoffLabel,
+            latestDayStatus: lPt.status,
+            current: lPt.sameTodValue,
+            previous: pPt.sameTodValue,
+            deltaAbs: null,
+            deltaPct: null,
+            denominatorZero: false,
+            comparable: false,
+            reason: pPt.status === "gap" ? "non_consecutive_dates_gap" : "missing_same_tod_breakdown"
           };
         }
       }
@@ -2677,8 +3208,9 @@
       });
 
       var freshnessMeta = (hotspotHistory && hotspotHistory.freshness) || {};
+      var activeScopeId = normKab || normProv || reg;
       return {
-        seriesId: "firms-hotspots:" + reg + ":" + win + ":" + tzMode + ":" + aggMode,
+        seriesId: "firms-hotspots:" + activeScopeId + ":" + win + ":" + tzMode + ":" + aggMode,
         metricId: "firms-hotspots",
         title: aggMode === "cumulative"
           ? "Kumulatif Deteksi Panas Satelit (NASA FIRMS VIIRS)"
@@ -2693,7 +3225,7 @@
         lastAttemptedSync: freshnessMeta.lastAttemptedSync || (pipelineStatus && pipelineStatus.lastAttemptedSync) || null,
         newestObservationAt: freshnessMeta.newestDetectionUtc || (firmsMeta && firmsMeta.newestDetectionUtc) || null,
         coverage: {
-          scopeId: reg,
+          scopeId: activeScopeId,
           scopeLabel: scopeLabel,
           requestedWindow: win,
           requestedDays: reqDays,
@@ -2708,7 +3240,7 @@
     }
 
     function formatDeltaBadgeText(deltaObj) {
-      if (!deltaObj || !deltaObj.comparable) return "Delta tidak sebanding (interval parsial/kurang)";
+      if (!deltaObj || !deltaObj.comparable) return "Delta tidak sebanding (jeda tanggal / interval parsial)";
       var sign = deltaObj.deltaAbs > 0 ? "+" : "";
       var absStr = sign + Number(deltaObj.deltaAbs).toLocaleString("id-ID");
       if (deltaObj.denominatorZero) {
@@ -2740,18 +3272,18 @@
         } else {
           var dod = seriesEnvelope.completeDayOverDay;
           var tod = seriesEnvelope.sameTimeOfDayComparison;
-          var dodClass = dod && dod.deltaAbs > 0 ? " up" : (dod && dod.deltaAbs < 0 ? " down" : "");
-          var todClass = tod && tod.deltaAbs > 0 ? " up" : (tod && tod.deltaAbs < 0 ? " down" : "");
+          var dodClass = dod && dod.comparable && dod.deltaAbs > 0 ? " up" : (dod && dod.comparable && dod.deltaAbs < 0 ? " down" : "");
+          var todClass = tod && tod.comparable && tod.deltaAbs > 0 ? " up" : (tod && tod.comparable && tod.deltaAbs < 0 ? " down" : "");
           var dodHtml = dod
             ? ('<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh (' + escapeHtml(dod.currentDate + " vs " + dod.previousDate) + ')</span>' +
                '<span class="delta-val' + dodClass + '">' + escapeHtml(formatDeltaBadgeText(dod)) + '</span>' +
-               '<div style="font-size:10px;color:var(--muted)">' + Number(dod.current).toLocaleString("id-ID") + ' vs ' + Number(dod.previous).toLocaleString("id-ID") + ' ' + escapeHtml(seriesEnvelope.units) + '</div></div>')
-            : '<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh</span><span class="delta-val">Membutuhkan ≥2 hari penuh</span></div>';
+               '<div style="font-size:10px;color:var(--muted)">' + (dod.current != null ? Number(dod.current).toLocaleString("id-ID") : "—") + ' vs ' + (dod.previous != null ? Number(dod.previous).toLocaleString("id-ID") : "GAP") + ' ' + escapeHtml(seriesEnvelope.units) + '</div></div>')
+            : '<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh</span><span class="delta-val">Membutuhkan ≥2 hari penuh berurutan</span></div>';
 
           var todHtml = tod
             ? ('<div class="ts-delta-pill"><span class="delta-label">Jam-yang-Sama s/d ' + escapeHtml(tod.cutoffTime) + ' (' + escapeHtml(tod.currentDate + " vs " + tod.previousDate) + ')</span>' +
                '<span class="delta-val' + todClass + '">' + escapeHtml(formatDeltaBadgeText(tod)) + '</span>' +
-               '<div style="font-size:10px;color:var(--muted)">' + Number(tod.current).toLocaleString("id-ID") + ' vs ' + Number(tod.previous).toLocaleString("id-ID") + ' · Status hari terbaru: ' + escapeHtml(String(tod.latestDayStatus || "").toUpperCase()) + '</div></div>')
+               '<div style="font-size:10px;color:var(--muted)">' + (tod.current != null ? Number(tod.current).toLocaleString("id-ID") : "—") + ' vs ' + (tod.previous != null ? Number(tod.previous).toLocaleString("id-ID") : "GAP") + ' · Status hari terbaru: ' + escapeHtml(String(tod.latestDayStatus || "").toUpperCase()) + '</div></div>')
             : '';
 
           var syncHtml =
@@ -2851,7 +3383,7 @@
         var dInfo = pt.deltaAbs != null
           ? ('Perubahan Hari Penuh: <strong>' + (pt.deltaAbs > 0 ? "+" : "") + pt.deltaAbs.toLocaleString("id-ID") +
              (pt.deltaPct != null ? (' (' + (pt.deltaPct > 0 ? "+" : "") + pt.deltaPct + '%)') : '') + '</strong>')
-          : (pt.status === "partial" ? "Status: <strong>PARTIAL DAY (Hari berjalan/belum 24 jam penuh)</strong>" : "Hari pertama pada jendela terpilih");
+          : (pt.status === "partial" ? "Status: <strong>PARTIAL DAY (Hari berjalan/belum 24 jam penuh)</strong>" : "Tidak ada perbandingan hari penuh berurutan");
         tooltipEl.innerHTML =
           '<strong>' + escapeHtml(pt.label) + '</strong> (' + escapeHtml(pt.validFrom + ' s/d ' + pt.validTo + ' ' + (seriesEnvelope.timezone || "UTC")) + ') · ' +
           'Nilai: <strong>' + Number(pt.value).toLocaleString("id-ID") + ' ' + escapeHtml(seriesEnvelope.units) + '</strong> (' + escapeHtml(seriesEnvelope.aggregationMode) + ') · ' + dInfo + '<br/>' +
@@ -2881,6 +3413,8 @@
     }
 
     hotspotHistory = hotspotHistoryPayload;
+    window.hotspotHistory = hotspotHistoryPayload;
+    evaluateFirmsFreshnessRuntime();
     var concessionInventoryRequest = 0;
     var regionRequest = 0;
     var hotspotRequest = 0;
@@ -3319,6 +3853,10 @@
           var allowedProvs = (regionById[state.region] && regionById[state.region].provinces) || null;
           var filteredFeatures = rawFeatures.filter(function (feat) {
             var fp = (feat && feat.properties) || {};
+            if (state.prov && state.kab) {
+              var authParent = resolveKabupatenProvinceJs(state.kab);
+              if (authParent && authParent !== state.prov) return false;
+            }
             if (state.prov) {
               var rProvs = parseRecordProvinces(fp, allowedProvs);
               if (rProvs.indexOf(state.prov) === -1) return false;
@@ -3606,43 +4144,122 @@
       };
     }
 
+    function indexLoadedInventoryGeoJson(fc, layerUrl) {
+      if (!fc || !Array.isArray(fc.features)) return;
+      fc.features.forEach(function (feat) {
+        if (!feat || typeof feat !== "object") return;
+        var props = feat.properties || {};
+        if (layerUrl && !props._sourceLayerUrl) props._sourceLayerUrl = layerUrl;
+        var did = String(props.dossierId || "").trim();
+        if (did && !props.sourceInventoryId && !props.inventoryId && !props.sourceDataset) {
+          var dVmId = "dossier:" + did;
+          if (!featureByViewModelId[dVmId]) featureByViewModelId[dVmId] = [];
+          if (featureByViewModelId[dVmId].indexOf(feat) === -1) {
+            featureByViewModelId[dVmId].push(feat);
+          }
+          return;
+        }
+        var key = String(props.sourceInventoryId || props.inventoryId || (props.sourceDataset + ":" + props.sourceRecordId));
+        var vmId = "inv:" + key;
+        if (!featureByViewModelId[vmId]) featureByViewModelId[vmId] = [];
+        if (featureByViewModelId[vmId].indexOf(feat) === -1) {
+          featureByViewModelId[vmId].push(feat);
+        }
+      });
+    }
+
+    function ensureConcessionGeometryForRow(row) {
+      if (!row || !row.hasGeometry) return Promise.resolve([]);
+      var existing = featureByViewModelId[row.viewModelId];
+      if (existing && existing.length) return Promise.resolve(existing);
+      if (row.linkedDossierId && boundaryById && boundaryById[row.linkedDossierId] && boundaryById[row.linkedDossierId].length) {
+        featureByViewModelId[row.viewModelId] = boundaryById[row.linkedDossierId];
+        return Promise.resolve(featureByViewModelId[row.viewModelId]);
+      }
+      var urls = Array.isArray(row.layerUrls) && row.layerUrls.length
+        ? row.layerUrls
+        : [];
+      if (!urls.length && row.region && row.sourceDataset) {
+        var dsMap = {
+          "big-forestry-ha": "forestry-ha.geojson",
+          "big-forestry-hti": "forestry-hti.geojson",
+          "big-forestry-re": "forestry-re.geojson",
+          "big-oil-palm-ihl": "oil-palm-ihl.geojson",
+          "gfw-oil-palm": "oil-palm-gfw.geojson",
+          "gfw-wood-fiber": "wood-fiber-gfw.geojson",
+          "gfw-logging": "logging-gfw.geojson",
+          "esdm-mining-wiup": "mining-wiup.geojson"
+        };
+        if (dsMap[row.sourceDataset]) {
+          urls = ["data/concessions/" + row.region + "/inventory/" + dsMap[row.sourceDataset]];
+        }
+      }
+      if (!urls.length) return Promise.resolve([]);
+      return Promise.all(urls.map(function (u) {
+        return loadConcessionInventoryData({ url: u }).then(function (fc) {
+          indexLoadedInventoryGeoJson(fc, u);
+          return fc;
+        }).catch(function () { return null; });
+      })).then(function () {
+        return featureByViewModelId[row.viewModelId] || [];
+      });
+    }
+
     function ensureRegionalUnifiedConcessionIndex(regionId) {
       if (!regionId || regionId === "indonesia") return Promise.resolve(null);
       if (unifiedConcessionCache[regionId]) return Promise.resolve(unifiedConcessionCache[regionId]);
       if (unifiedConcessionLoading[regionId]) return unifiedConcessionLoading[regionId];
 
+      var indexUrl = "data/concessions/" + regionId + "/inventory/index.json";
       var allowedProvs = (regionById[regionId] && regionById[regionId].provinces) || null;
-      var p = Promise.all([
-        loadConcessionInventoryManifest(regionId),
-        loadRegionStatic(regionId)
-      ]).then(function (pair) {
-        var invManifest = pair[0];
-        var staticPayload = pair[1] || {};
-        var layers = (invManifest && Array.isArray(invManifest.layers)) ? invManifest.layers : [];
-        return Promise.all(layers.map(loadConcessionInventoryData)).then(function (layerPayloads) {
-          var allFeatures = [];
-          layerPayloads.forEach(function (fc) {
-            if (fc && Array.isArray(fc.features)) {
-              allFeatures = allFeatures.concat(fc.features);
+      var p = loadJson(indexUrl).then(function (idxPayload) {
+        if (idxPayload && Array.isArray(idxPayload.rows)) {
+          idxPayload.rows.forEach(function (row) {
+            if (row && row.viewModelId) {
+              viewModelById[row.viewModelId] = row;
             }
           });
-          var dossiersList = (staticPayload.dossiers && Array.isArray(staticPayload.dossiers.dossiers))
-            ? staticPayload.dossiers.dossiers
-            : [];
-          var bFeatures = (staticPayload.boundaries && Array.isArray(staticPayload.boundaries.features))
-            ? staticPayload.boundaries.features
-            : [];
-          var built = buildUnifiedConcessionViewModels(
-            allFeatures,
-            dossiersList,
-            bFeatures,
-            regionId,
-            allowedProvs
-          );
-          built.manifest = invManifest;
-          unifiedConcessionCache[regionId] = built;
+          idxPayload.geometryLoaded = false;
+          unifiedConcessionCache[regionId] = idxPayload;
           delete unifiedConcessionLoading[regionId];
-          return built;
+          return idxPayload;
+        }
+        throw new Error("Invalid regional concession metadata index payload");
+      }).catch(function () {
+        // Fallback when lightweight index.json is not present: build from manifest & layers
+        return Promise.all([
+          loadConcessionInventoryManifest(regionId),
+          loadRegionStatic(regionId)
+        ]).then(function (pair) {
+          var invManifest = pair[0];
+          var staticPayload = pair[1] || {};
+          var layers = (invManifest && Array.isArray(invManifest.layers)) ? invManifest.layers : [];
+          return Promise.all(layers.map(loadConcessionInventoryData)).then(function (layerPayloads) {
+            var allFeatures = [];
+            layerPayloads.forEach(function (fc) {
+              if (fc && Array.isArray(fc.features)) {
+                allFeatures = allFeatures.concat(fc.features);
+              }
+            });
+            var dossiersList = (staticPayload.dossiers && Array.isArray(staticPayload.dossiers.dossiers))
+              ? staticPayload.dossiers.dossiers
+              : (staticPayload.dossier && Array.isArray(staticPayload.dossier.dossiers) ? staticPayload.dossier.dossiers : []);
+            var bFeatures = (staticPayload.boundaries && Array.isArray(staticPayload.boundaries.features))
+              ? staticPayload.boundaries.features
+              : [];
+            var built = buildUnifiedConcessionViewModels(
+              allFeatures,
+              dossiersList,
+              bFeatures,
+              regionId,
+              allowedProvs
+            );
+            built.manifest = invManifest;
+            built.geometryLoaded = true;
+            unifiedConcessionCache[regionId] = built;
+            delete unifiedConcessionLoading[regionId];
+            return built;
+          });
         });
       }).catch(function (err) {
         delete unifiedConcessionLoading[regionId];
@@ -3666,7 +4283,17 @@
       var page = Math.max(1, parseInt(opts.page != null ? opts.page : (state.concessionPage || 1), 10) || 1);
       var pageSize = Math.max(1, parseInt(opts.pageSize != null ? opts.pageSize : (state.concessionPageSize || 50), 10) || 50);
 
-      var filtered = (Array.isArray(rows) ? rows : []).filter(function (row) {
+      var normProv = prov ? (normalizeProvinceName(prov) || prov) : "";
+      var normKab = kab ? (normalizeKabupatenName(kab) || kab) : "";
+      var hierarchyMismatch = false;
+      if (normProv && normKab && typeof resolveKabupatenProvinceJs === "function") {
+        var authParentProv = resolveKabupatenProvinceJs(normKab);
+        if (authParentProv && authParentProv !== normProv) {
+          hierarchyMismatch = true;
+        }
+      }
+
+      var filtered = hierarchyMismatch ? [] : (Array.isArray(rows) ? rows : []).filter(function (row) {
         if (sec && row.sector !== sec) return false;
         if (qual) {
           if (qual === "DOSSIER") {
@@ -3680,13 +4307,13 @@
             if (rq !== "GFW" && rq !== "PERKIRAAN") return false;
           }
         }
-        if (prov) {
+        if (normProv) {
           var rProvs = row.provinces || [];
-          if (rProvs.indexOf(prov) === -1) return false;
+          if (rProvs.indexOf(normProv) === -1) return false;
         }
-        if (kab) {
+        if (normKab) {
           var rKabs = row.kabupaten || [];
-          if (rKabs.indexOf(kab) === -1) return false;
+          if (rKabs.indexOf(normKab) === -1) return false;
         }
         if (party) {
           if (!row.hasInvestigativeDossier || !row.linkedDossierId) return false;
@@ -3815,15 +4442,36 @@
           }
         });
         focusedConcessionLayer.addLayer(gj);
-      } else if (row.centroid && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
-        var cm = L.circleMarker(row.centroid, {
-          radius: 9,
-          color: "#ffffff",
-          weight: 2,
-          fillColor: "#e3a008",
-          fillOpacity: 0.85
-        });
-        focusedConcessionLayer.addLayer(cm);
+      } else {
+        if (row.centroid && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
+          var cm = L.circleMarker(row.centroid, {
+            radius: 9,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#e3a008",
+            fillOpacity: 0.85
+          });
+          focusedConcessionLayer.addLayer(cm);
+        }
+        if (row.hasGeometry && (state.view === "map" || state.inspectorTab === "map")) {
+          ensureConcessionGeometryForRow(row).then(function (loadedFeats) {
+            if (state.selectedViewModelId === row.viewModelId && loadedFeats && loadedFeats.length && typeof focusedConcessionLayer !== "undefined" && focusedConcessionLayer) {
+              focusedConcessionLayer.clearLayers();
+              var gjLazy = L.geoJSON({ type: "FeatureCollection", features: loadedFeats }, {
+                style: function () {
+                  return {
+                    color: "#ffffff",
+                    weight: 2.5,
+                    opacity: 1,
+                    fillColor: "#e3a008",
+                    fillOpacity: 0.30
+                  };
+                }
+              });
+              focusedConcessionLayer.addLayer(gjLazy);
+            }
+          });
+        }
       }
     }
 
@@ -3867,9 +4515,9 @@
       var returnLabel = "← Kembali ke Daftar (" + qRes.totalFiltered.toLocaleString("id-ID") + " konsesi · Hal. " + qRes.page + ")";
 
       var qualityBadgeClass = row.quality === "OFFICIAL" ? "official" : (row.recordKind === "dossier-only" ? "dossier-only" : "gfw");
-      var qualityLabel = row.quality === "OFFICIAL" ? "OFFICIAL · BIG" : (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN" : "ESTIMATED · " + row.quality);
+      var qualityLabel = row.quality === "OFFICIAL" ? "OFFICIAL · BIG" : (row.recordKind === "dossier-only" ? "CURATED · INVESTIGATIVE" : "ESTIMATED · " + row.quality);
       var dossierBadgeHtml = hasDossier
-        ? '<span class="vm-badge dossier-linked">' + (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN (TANPA PADANAN INVENTARIS)" : "DOSSIER INVESTIGASI TERSEDIA") + '</span>'
+        ? '<span class="vm-badge dossier-linked">' + (row.recordKind === "dossier-only" ? "DOSSIER INDEPENDEN (CURATED · INVESTIGATIVE)" : "DOSSIER INVESTIGASI TERSEDIA") + '</span>'
         : '<span class="vm-badge">INVENTARIS GENERIK · TANPA KLAIM ATRIBUSI</span>';
 
       var tabsHtml =
@@ -3918,12 +4566,21 @@
       } else if (activeTab === "map") {
         var featsForContext = featureByViewModelId[row.viewModelId] ||
           (row.linkedDossierId ? (boundaryById[row.linkedDossierId] || []) : []);
+        if (row.hasGeometry && (!featsForContext || !featsForContext.length) && !row._geomLoading) {
+          row._geomLoading = true;
+          ensureConcessionGeometryForRow(row).then(function () {
+            row._geomLoading = false;
+            if (state.selectedViewModelId === viewModelId && state.inspectorTab === "map") {
+              showUnifiedConcessionDetail(viewModelId, "map");
+            }
+          });
+        }
         var insideCount = 0;
         var nearCount = 0;
         var activePts = firmsForView();
         if (featsForContext && featsForContext.length && activePts.length) {
           activePts.forEach(function (pt) {
-            var isIn = featsForContext.some(function (f) { return pointInBoundaryGeometry(pt.lat, pt.lon, f.geometry); });
+            var isIn = featsForContext.some(function (f) { return pointInBoundaryGeometry(pt.lon, pt.lat, f.geometry); });
             if (isIn) {
               insideCount += 1;
             } else {
@@ -4531,10 +5188,18 @@
       return true;
     }
 
-    function pointInBoundaryGeometry(lon, lat, geometry) {
-      if (!geometry) return false;
-      if (geometry.type === "Polygon") return pointInBoundaryPolygon(lon, lat, geometry.coordinates || []);
-      if (geometry.type === "MultiPolygon") return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(lon, lat, polygon); });
+    function pointInBoundaryGeometry(lon, lat, entryOrGeom) {
+      if (!entryOrGeom) return false;
+      var geometry = entryOrGeom.geometry ? entryOrGeom.geometry : entryOrGeom;
+      if (!geometry || !geometry.type) return false;
+      var x = Number(lon), y = Number(lat);
+      if (!isFinite(x) || !isFinite(y)) return false;
+      var bbox = entryOrGeom.bbox || geometry.bbox;
+      if (Array.isArray(bbox) && bbox.length === 4) {
+        if (x < bbox[0] - 1e-6 || x > bbox[2] + 1e-6 || y < bbox[1] - 1e-6 || y > bbox[3] + 1e-6) return false;
+      }
+      if (geometry.type === "Polygon") return pointInBoundaryPolygon(x, y, geometry.coordinates || []);
+      if (geometry.type === "MultiPolygon") return (geometry.coordinates || []).some(function (polygon) { return pointInBoundaryPolygon(x, y, polygon); });
       return false;
     }
 
@@ -4680,6 +5345,8 @@
         if (d && p.date !== d) return false;
         if (state.conf && p.conf !== state.conf) return false;
         if (state.platform && normalizePlatform(p) !== state.platform) return false;
+        if (state.prov && !pointMatchesProvince(p, state.prov)) return false;
+        if (state.kab && !pointMatchesKabupaten(p, state.kab, state.prov)) return false;
         return true;
       });
     }
@@ -4710,14 +5377,38 @@
       });
     }
 
+    function refreshAdminBoundaryHighlight() {
+      if (!adminBoundaryLayer && typeof map !== "undefined" && map && typeof L !== "undefined" && L.layerGroup) {
+        adminBoundaryLayer = L.layerGroup().addTo(map);
+      }
+      if (!adminBoundaryLayer) return;
+      adminBoundaryLayer.clearLayers();
+      var activeEntry = state.kab
+        ? adminBoundaryByKab[state.kab]
+        : (state.prov ? adminBoundaryByProv[state.prov] : null);
+      if (activeEntry && activeEntry.feature) {
+        L.geoJSON(activeEntry.feature, {
+          style: {
+            color: "#38bdf8",
+            weight: 1.8,
+            opacity: 0.85,
+            fillColor: "#38bdf8",
+            fillOpacity: 0.05,
+            dashArray: "4 4"
+          }
+        }).addTo(adminBoundaryLayer);
+      }
+    }
+
     function refreshFirmsLayer() {
       clusterGroup.clearLayers();
       nationalSummaryLayer.clearLayers();
-      if (!state.showFirms) {
+      refreshAdminBoundaryHighlight();
+      if (state.showFirms === false) {
         elTimeLabel.textContent = (currentDate() || '—') + ' · Layer Hotspots FIRMS dinonaktifkan';
         return;
       }
-      if (state.region === "indonesia") {
+      if (state.region === "indonesia" && !state.prov && !state.kab) {
         refreshNationalSummary();
         var nationalCount = nationalCountForDate(currentDate());
         elTimeLabel.textContent = (currentDate() || "—") + " · " + nationalCount.toLocaleString("id-ID") + " detections · ringkasan 7 region";
@@ -4735,7 +5426,9 @@
         })(pts[i]);
       }
       clusterGroup.addLayers(markers);
-      var scope = (regionById[state.region] || {}).label || state.region;
+      var scope = state.kab
+        ? ("Kab. " + state.kab)
+        : (state.prov ? ("Prov. " + state.prov) : ((regionById[state.region] || {}).label || state.region));
       elTimeLabel.textContent = (currentDate() || "—") + " · " + pts.length.toLocaleString("id-ID") + " satellite detections · " + scope +
         (state.conf ? " · " + state.conf : "") + (state.platform ? " · " + state.platform : "");
     }
@@ -5108,7 +5801,12 @@
 
     ["f-prov", "f-sector", "f-party", "f-boundary", "f-conf", "f-platform"].forEach(function (id) {
       document.getElementById(id).addEventListener("change", function (e) {
-        if (id === "f-prov") state.prov = e.target.value;
+        if (id === "f-prov") {
+          state.prov = e.target.value;
+          state.kab = "";
+          updateKabupatenOptions(state.region, state.prov);
+          renderDatasetState();
+        }
         if (id === "f-sector") state.sector = e.target.value;
         if (id === "f-party") state.party = e.target.value;
         if (id === "f-boundary") state.boundary = e.target.value;
@@ -5170,6 +5868,13 @@
     document.getElementById("f-prov-shared").addEventListener("change", function (e) {
       state.prov = e.target.value;
       state.kab = "";
+      if (state.prov && state.region === "indonesia") {
+        var targetReg = resolveProvinceRegionJs(state.prov);
+        if (targetReg) {
+          selectRegion(targetReg, currentDate());
+          return;
+        }
+      }
       var provSidebar = document.getElementById("f-prov");
       if (provSidebar) provSidebar.value = state.prov;
       updateKabupatenOptions(state.region, state.prov);
@@ -5182,6 +5887,23 @@
 
     document.getElementById("f-kab").addEventListener("change", function (e) {
       state.kab = e.target.value;
+      if (state.kab) {
+        var parentProv = resolveKabupatenProvinceJs(state.kab);
+        if (parentProv && !state.prov) {
+          state.prov = parentProv;
+          var provSidebar = document.getElementById("f-prov");
+          if (provSidebar) provSidebar.value = state.prov;
+          var provShared = document.getElementById("f-prov-shared");
+          if (provShared) provShared.value = state.prov;
+        }
+        if (state.region === "indonesia" && parentProv) {
+          var targetReg = resolveProvinceRegionJs(parentProv);
+          if (targetReg) {
+            selectRegion(targetReg, currentDate());
+            return;
+          }
+        }
+      }
       renderDatasetState();
       renderList();
       refreshConcessionMarkers();

@@ -204,11 +204,22 @@ V2_WAVE3_JS = r"""
 
     function extractBucketFilteredCountJs(bucket, platform, conf, useSameTod) {
       if (!bucket) return 0;
-      if (useSameTod && !platform && !conf) {
-        return Number(bucket.sameTodCount != null ? bucket.sameTodCount : (bucket.count || 0));
-      }
       var plat = String(platform || "").trim().toUpperCase();
       var cf = String(conf || "").trim().toLowerCase();
+      if (useSameTod) {
+        if (plat && cf && bucket.sameTodByPlatformConfidence) {
+          return Number(bucket.sameTodByPlatformConfidence[plat + "|" + cf] || 0);
+        }
+        if (plat && bucket.sameTodByPlatform) {
+          return Number(bucket.sameTodByPlatform[plat] || 0);
+        }
+        if (cf && bucket.sameTodByConfidence) {
+          return Number(bucket.sameTodByConfidence[cf] || 0);
+        }
+        if (!plat && !cf) {
+          return Number(bucket.sameTodCount != null ? bucket.sameTodCount : (bucket.count || 0));
+        }
+      }
       if (plat && cf && bucket.byPlatformConfidence) {
         return Number(bucket.byPlatformConfidence[plat + "|" + cf] || 0);
       }
@@ -219,6 +230,28 @@ V2_WAVE3_JS = r"""
         return Number(bucket.byConfidence[cf] || 0);
       }
       return Number(bucket.count || 0);
+    }
+
+    function areDatesConsecutiveJs(prevDateStr, currDateStr) {
+      if (!prevDateStr || !currDateStr) return false;
+      var d1 = Date.parse(String(prevDateStr).slice(0, 10) + "T00:00:00Z");
+      var d2 = Date.parse(String(currDateStr).slice(0, 10) + "T00:00:00Z");
+      if (!isFinite(d1) || !isFinite(d2)) return false;
+      return Math.round((d2 - d1) / 86400000) === 1;
+    }
+
+    function areObservationPeriodsComparableJs(prevPt, currPt) {
+      if (!prevPt || !currPt) return false;
+      if (prevPt.status !== "complete" || currPt.status !== "complete") return false;
+      if (prevPt.rawVal == null || currPt.rawVal == null) return false;
+      if (!areDatesConsecutiveJs(prevPt.date, currPt.date)) return false;
+      var vfPrev = String(prevPt.validFrom || "");
+      var vtPrev = String(prevPt.validTo || "");
+      var vfCurr = String(currPt.validFrom || "");
+      var vtCurr = String(currPt.validTo || "");
+      if (vfPrev.slice(10) !== "T00:00:00" || vfCurr.slice(10) !== "T00:00:00") return false;
+      if (vtPrev.slice(10) !== "T23:59:59" || vtCurr.slice(10) !== "T23:59:59") return false;
+      return true;
     }
 
     function getActiveScopeLabel() {
@@ -243,7 +276,16 @@ V2_WAVE3_JS = r"""
       var win = opts.window != null ? opts.window : (state.window || "all");
       var plat = opts.platform != null ? opts.platform : (state.platform || "");
       var conf = opts.conf != null ? opts.conf : (state.conf || "");
-      var scopeLabel = getActiveScopeLabel();
+      var normProv = prov ? (normalizeProvinceName(prov) || prov) : "";
+      var normKab = kab ? (normalizeKabupatenName(kab) || kab) : "";
+      var scopeParts = [
+        reg === "indonesia"
+          ? "Indonesia"
+          : ((regionById[reg] || {}).label || reg)
+      ];
+      if (normProv) scopeParts.push(normProv);
+      if (normKab) scopeParts.push(normKab);
+      var scopeLabel = scopeParts.join(" · ");
 
       if (mId !== "firms-hotspots") {
         var specs = {
@@ -283,7 +325,7 @@ V2_WAVE3_JS = r"""
           updatedAt: null,
           newestObservationAt: null,
           coverage: {
-            scopeId: kab || prov || reg,
+            scopeId: normKab || normProv || reg,
             scopeLabel: scopeLabel,
             requestedWindow: win,
             completeness: "unavailable",
@@ -293,28 +335,31 @@ V2_WAVE3_JS = r"""
         };
       }
 
-      if (prov || kab) {
-        return {
-          seriesId: "firms-hotspots:" + reg + ":" + prov + ":" + kab,
-          metricId: "firms-hotspots",
-          title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
-          sourceId: "firms-hotspots",
-          sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
-          units: "detections",
-          granularity: "day",
-          aggregationMode: aggMode,
-          timezone: tzMode,
-          updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
-          newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
-          coverage: {
-            scopeId: kab || prov,
-            scopeLabel: scopeLabel,
-            requestedWindow: win,
-            completeness: "unavailable",
-            reason: "Shard observasi NASA FIRMS dikelompokkan per 7 wilayah logis (pulau/kepulauan) tanpa poligon batas provinsi/kabupaten. Total pulau tidak pernah disubstitusikan untuk filter sub-pulau."
-          },
-          points: []
-        };
+      if (normProv && normKab && typeof resolveKabupatenProvinceJs === "function") {
+        var authParentProv = resolveKabupatenProvinceJs(normKab);
+        if (authParentProv && authParentProv !== normProv) {
+          return {
+            seriesId: "firms-hotspots:" + reg + ":" + normProv + ":" + normKab,
+            metricId: "firms-hotspots",
+            title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
+            sourceId: "firms-hotspots",
+            sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+            units: "detections",
+            granularity: "day",
+            aggregationMode: aggMode,
+            timezone: tzMode,
+            updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
+            newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
+            coverage: {
+              scopeId: normKab,
+              scopeLabel: scopeLabel,
+              requestedWindow: win,
+              completeness: "unavailable",
+              reason: "Kabupaten/Kota " + normKab + " secara otoritatif berada di Provinsi " + authParentProv + ", bukan " + normProv + "."
+            },
+            points: []
+          };
+        }
       }
 
       var rawDaily = [];
@@ -345,6 +390,35 @@ V2_WAVE3_JS = r"""
         });
       }
 
+      if ((normProv || normKab) && rawDaily.length) {
+        var hasAdminBuckets = rawDaily.some(function (dObj) {
+          return dObj && (dObj.byProvince || dObj.byKabupaten);
+        });
+        if (!hasAdminBuckets) {
+          return {
+            seriesId: "firms-hotspots:" + reg + ":" + normProv + ":" + normKab,
+            metricId: "firms-hotspots",
+            title: "Tren Harian Deteksi Panas Satelit (NASA FIRMS VIIRS)",
+            sourceId: "firms-hotspots",
+            sourceName: "NASA FIRMS NRT VIIRS (S-NPP, NOAA-20, NOAA-21)",
+            units: "detections",
+            granularity: "day",
+            aggregationMode: aggMode,
+            timezone: tzMode,
+            updatedAt: (firmsMeta && firmsMeta.lastSuccessfulSync) || null,
+            newestObservationAt: (firmsMeta && firmsMeta.newestDetectionUtc) || null,
+            coverage: {
+              scopeId: normKab || normProv,
+              scopeLabel: scopeLabel,
+              requestedWindow: win,
+              completeness: "unavailable",
+              reason: "Bucket deret waktu tingkat provinsi/kabupaten belum tersedia pada artefak riwayat yang dimuat."
+            },
+            points: []
+          };
+        }
+      }
+
       if (!rawDaily.length) {
         return {
           seriesId: "firms-hotspots:empty",
@@ -359,7 +433,7 @@ V2_WAVE3_JS = r"""
           updatedAt: null,
           newestObservationAt: null,
           coverage: {
-            scopeId: reg,
+            scopeId: normKab || normProv || reg,
             scopeLabel: scopeLabel,
             requestedWindow: win,
             completeness: "unavailable",
@@ -392,7 +466,14 @@ V2_WAVE3_JS = r"""
             status: "gap"
           });
         } else {
-          var bkt = reg === "indonesia" ? dayObj.national : (dayObj.regions && dayObj.regions[reg]);
+          var bkt = null;
+          if (normKab) {
+            bkt = (dayObj.byKabupaten && dayObj.byKabupaten[normKab]) || { count: 0, sameTodCount: 0 };
+          } else if (normProv) {
+            bkt = (dayObj.byProvince && dayObj.byProvince[normProv]) || { count: 0, sameTodCount: 0 };
+          } else {
+            bkt = reg === "indonesia" ? dayObj.national : (dayObj.regions && dayObj.regions[reg]);
+          }
           var val = extractBucketFilteredCountJs(bkt, plat, conf, false);
           var todVal = extractBucketFilteredCountJs(bkt, plat, conf, true);
           var st = String(dayObj.completeness || "complete");
@@ -415,7 +496,7 @@ V2_WAVE3_JS = r"""
           p.deltaAbs = null;
           p.deltaPct = null;
           p.deltaComparable = false;
-        } else if (p.status === "complete" && continuous[i - 1].status === "complete") {
+        } else if (areObservationPeriodsComparableJs(continuous[i - 1], p)) {
           var dm = computeDeltaMetricsJs(p.rawVal, continuous[i - 1].rawVal);
           p.deltaAbs = dm.deltaAbs;
           p.deltaPct = dm.deltaPct;
@@ -427,42 +508,81 @@ V2_WAVE3_JS = r"""
         }
       }
 
-      var completeDays = continuous.filter(function (x) { return x.status === "complete" && x.rawVal != null; });
+      var latestCompleteIdx = -1;
+      for (var k = continuous.length - 1; k >= 0; k--) {
+        if (continuous[k].status === "complete" && continuous[k].rawVal != null) {
+          latestCompleteIdx = k;
+          break;
+        }
+      }
       var completeDod = null;
-      if (completeDays.length >= 2) {
-        var cCurr = completeDays[completeDays.length - 1];
-        var cPrev = completeDays[completeDays.length - 2];
-        var cdm = computeDeltaMetricsJs(cCurr.rawVal, cPrev.rawVal);
-        completeDod = {
-          currentDate: cCurr.date,
-          previousDate: cPrev.date,
-          current: cdm.current,
-          previous: cdm.previous,
-          deltaAbs: cdm.deltaAbs,
-          deltaPct: cdm.deltaPct,
-          denominatorZero: cdm.denominatorZero,
-          comparable: cdm.comparable
-        };
+      if (latestCompleteIdx >= 0) {
+        var cCurr = continuous[latestCompleteIdx];
+        var prevIdx = latestCompleteIdx - 1;
+        if (prevIdx >= 0 && areObservationPeriodsComparableJs(continuous[prevIdx], cCurr)) {
+          var cPrev = continuous[prevIdx];
+          var cdm = computeDeltaMetricsJs(cCurr.rawVal, cPrev.rawVal);
+          completeDod = {
+            currentDate: cCurr.date,
+            previousDate: cPrev.date,
+            current: cdm.current,
+            previous: cdm.previous,
+            deltaAbs: cdm.deltaAbs,
+            deltaPct: cdm.deltaPct,
+            denominatorZero: cdm.denominatorZero,
+            comparable: cdm.comparable,
+            reason: cdm.reason
+          };
+        } else if (prevIdx >= 0) {
+          var adjPrev = continuous[prevIdx];
+          completeDod = {
+            currentDate: cCurr.date,
+            previousDate: adjPrev.date,
+            current: cCurr.rawVal,
+            previous: adjPrev.rawVal,
+            deltaAbs: null,
+            deltaPct: null,
+            denominatorZero: false,
+            comparable: false,
+            reason: adjPrev.status === "gap" ? "non_consecutive_dates_gap" : "incomparable_observation_period"
+          };
+        }
       }
 
       var sameTodComp = null;
-      if (continuous.length >= 2 && !plat && !conf) {
+      if (continuous.length >= 2) {
         var lPt = continuous[continuous.length - 1];
         var pPt = continuous[continuous.length - 2];
-        if (lPt.status !== "gap" && pPt.status !== "gap") {
-          var cutoffRaw = (hotspotHistory && (tzMode === "Asia/Jakarta" ? hotspotHistory.wibTodCutoff : hotspotHistory.utcTodCutoff)) || "2359";
+        var cutoffRaw = (hotspotHistory && (tzMode === "Asia/Jakarta" ? hotspotHistory.wibTodCutoff : hotspotHistory.utcTodCutoff)) || "2359";
+        var cutoffLabel = String(cutoffRaw).slice(0, 2) + ":" + String(cutoffRaw).slice(2, 4) + " " + tzMode;
+        if (lPt.status !== "gap" && pPt.status !== "gap" && areDatesConsecutiveJs(pPt.date, lPt.date) && lPt.sameTodValue != null && pPt.sameTodValue != null) {
           var sdm = computeDeltaMetricsJs(lPt.sameTodValue, pPt.sameTodValue);
           sameTodComp = {
             currentDate: lPt.date,
             previousDate: pPt.date,
-            cutoffTime: String(cutoffRaw).slice(0, 2) + ":" + String(cutoffRaw).slice(2, 4) + " " + tzMode,
+            cutoffTime: cutoffLabel,
             latestDayStatus: lPt.status,
             current: sdm.current,
             previous: sdm.previous,
             deltaAbs: sdm.deltaAbs,
             deltaPct: sdm.deltaPct,
             denominatorZero: sdm.denominatorZero,
-            comparable: sdm.comparable
+            comparable: sdm.comparable,
+            reason: sdm.reason
+          };
+        } else if (lPt.status !== "gap") {
+          sameTodComp = {
+            currentDate: lPt.date,
+            previousDate: pPt.date,
+            cutoffTime: cutoffLabel,
+            latestDayStatus: lPt.status,
+            current: lPt.sameTodValue,
+            previous: pPt.sameTodValue,
+            deltaAbs: null,
+            deltaPct: null,
+            denominatorZero: false,
+            comparable: false,
+            reason: pPt.status === "gap" ? "non_consecutive_dates_gap" : "missing_same_tod_breakdown"
           };
         }
       }
@@ -506,8 +626,9 @@ V2_WAVE3_JS = r"""
       });
 
       var freshnessMeta = (hotspotHistory && hotspotHistory.freshness) || {};
+      var activeScopeId = normKab || normProv || reg;
       return {
-        seriesId: "firms-hotspots:" + reg + ":" + win + ":" + tzMode + ":" + aggMode,
+        seriesId: "firms-hotspots:" + activeScopeId + ":" + win + ":" + tzMode + ":" + aggMode,
         metricId: "firms-hotspots",
         title: aggMode === "cumulative"
           ? "Kumulatif Deteksi Panas Satelit (NASA FIRMS VIIRS)"
@@ -522,7 +643,7 @@ V2_WAVE3_JS = r"""
         lastAttemptedSync: freshnessMeta.lastAttemptedSync || (pipelineStatus && pipelineStatus.lastAttemptedSync) || null,
         newestObservationAt: freshnessMeta.newestDetectionUtc || (firmsMeta && firmsMeta.newestDetectionUtc) || null,
         coverage: {
-          scopeId: reg,
+          scopeId: activeScopeId,
           scopeLabel: scopeLabel,
           requestedWindow: win,
           requestedDays: reqDays,
@@ -537,7 +658,7 @@ V2_WAVE3_JS = r"""
     }
 
     function formatDeltaBadgeText(deltaObj) {
-      if (!deltaObj || !deltaObj.comparable) return "Delta tidak sebanding (interval parsial/kurang)";
+      if (!deltaObj || !deltaObj.comparable) return "Delta tidak sebanding (jeda tanggal / interval parsial)";
       var sign = deltaObj.deltaAbs > 0 ? "+" : "";
       var absStr = sign + Number(deltaObj.deltaAbs).toLocaleString("id-ID");
       if (deltaObj.denominatorZero) {
@@ -569,18 +690,18 @@ V2_WAVE3_JS = r"""
         } else {
           var dod = seriesEnvelope.completeDayOverDay;
           var tod = seriesEnvelope.sameTimeOfDayComparison;
-          var dodClass = dod && dod.deltaAbs > 0 ? " up" : (dod && dod.deltaAbs < 0 ? " down" : "");
-          var todClass = tod && tod.deltaAbs > 0 ? " up" : (tod && tod.deltaAbs < 0 ? " down" : "");
+          var dodClass = dod && dod.comparable && dod.deltaAbs > 0 ? " up" : (dod && dod.comparable && dod.deltaAbs < 0 ? " down" : "");
+          var todClass = tod && tod.comparable && tod.deltaAbs > 0 ? " up" : (tod && tod.comparable && tod.deltaAbs < 0 ? " down" : "");
           var dodHtml = dod
             ? ('<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh (' + escapeHtml(dod.currentDate + " vs " + dod.previousDate) + ')</span>' +
                '<span class="delta-val' + dodClass + '">' + escapeHtml(formatDeltaBadgeText(dod)) + '</span>' +
-               '<div style="font-size:10px;color:var(--muted)">' + Number(dod.current).toLocaleString("id-ID") + ' vs ' + Number(dod.previous).toLocaleString("id-ID") + ' ' + escapeHtml(seriesEnvelope.units) + '</div></div>')
-            : '<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh</span><span class="delta-val">Membutuhkan ≥2 hari penuh</span></div>';
+               '<div style="font-size:10px;color:var(--muted)">' + (dod.current != null ? Number(dod.current).toLocaleString("id-ID") : "—") + ' vs ' + (dod.previous != null ? Number(dod.previous).toLocaleString("id-ID") : "GAP") + ' ' + escapeHtml(seriesEnvelope.units) + '</div></div>')
+            : '<div class="ts-delta-pill"><span class="delta-label">Perubahan Hari Penuh</span><span class="delta-val">Membutuhkan ≥2 hari penuh berurutan</span></div>';
 
           var todHtml = tod
             ? ('<div class="ts-delta-pill"><span class="delta-label">Jam-yang-Sama s/d ' + escapeHtml(tod.cutoffTime) + ' (' + escapeHtml(tod.currentDate + " vs " + tod.previousDate) + ')</span>' +
                '<span class="delta-val' + todClass + '">' + escapeHtml(formatDeltaBadgeText(tod)) + '</span>' +
-               '<div style="font-size:10px;color:var(--muted)">' + Number(tod.current).toLocaleString("id-ID") + ' vs ' + Number(tod.previous).toLocaleString("id-ID") + ' · Status hari terbaru: ' + escapeHtml(String(tod.latestDayStatus || "").toUpperCase()) + '</div></div>')
+               '<div style="font-size:10px;color:var(--muted)">' + (tod.current != null ? Number(tod.current).toLocaleString("id-ID") : "—") + ' vs ' + (tod.previous != null ? Number(tod.previous).toLocaleString("id-ID") : "GAP") + ' · Status hari terbaru: ' + escapeHtml(String(tod.latestDayStatus || "").toUpperCase()) + '</div></div>')
             : '';
 
           var syncHtml =
@@ -680,7 +801,7 @@ V2_WAVE3_JS = r"""
         var dInfo = pt.deltaAbs != null
           ? ('Perubahan Hari Penuh: <strong>' + (pt.deltaAbs > 0 ? "+" : "") + pt.deltaAbs.toLocaleString("id-ID") +
              (pt.deltaPct != null ? (' (' + (pt.deltaPct > 0 ? "+" : "") + pt.deltaPct + '%)') : '') + '</strong>')
-          : (pt.status === "partial" ? "Status: <strong>PARTIAL DAY (Hari berjalan/belum 24 jam penuh)</strong>" : "Hari pertama pada jendela terpilih");
+          : (pt.status === "partial" ? "Status: <strong>PARTIAL DAY (Hari berjalan/belum 24 jam penuh)</strong>" : "Tidak ada perbandingan hari penuh berurutan");
         tooltipEl.innerHTML =
           '<strong>' + escapeHtml(pt.label) + '</strong> (' + escapeHtml(pt.validFrom + ' s/d ' + pt.validTo + ' ' + (seriesEnvelope.timezone || "UTC")) + ') · ' +
           'Nilai: <strong>' + Number(pt.value).toLocaleString("id-ID") + ' ' + escapeHtml(seriesEnvelope.units) + '</strong> (' + escapeHtml(seriesEnvelope.aggregationMode) + ') · ' + dInfo + '<br/>' +
@@ -743,32 +864,34 @@ def build_patched_index(source: str) -> str:
     # 3. Load data/hotspots/history.json in Promise.all
     old_promise_all = (
         '      loadJson("data/admin-index.json").catch(function () { return null; }),\n'
-        '      loadJson("data/sources-manifest.json").catch(function () { return null; })\n'
+        '      loadJson("data/sources-manifest.json").catch(function () { return null; }),\n'
+        '      loadJson("data/admin-boundaries.geojson").catch(function () { return null; })\n'
         '    ]).then(function (pair) {\n'
-        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8]);'
+        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9]);'
     )
     new_promise_all = (
         '      loadJson("data/admin-index.json").catch(function () { return null; }),\n'
         '      loadJson("data/sources-manifest.json").catch(function () { return null; }),\n'
+        '      loadJson("data/admin-boundaries.geojson").catch(function () { return null; }),\n'
         '      loadJson("data/hotspots/history.json").catch(function () { return null; })\n'
         '    ]).then(function (pair) {\n'
-        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9]);'
+        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9], pair[10]);'
     )
     text = replace_once(text, old_promise_all, new_promise_all, "v2 wave3 load history.json")
 
     text = replace_once(
         text,
-        "    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload) {",
-        "    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload, hotspotHistoryPayload) {",
+        "    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload, adminBoundariesPayload) {",
+        "    function boot(regionsPayload, hotspotsManifest, pipelineStatusPayload, dossierManifest, concessionManifest, affiliatedPayload, holdingCentersPayload, adminIndexPayload, sourcesManifestPayload, adminBoundariesPayload, hotspotHistoryPayload) {",
         "v2 wave3 boot signature",
     )
 
     text = replace_once(
         text,
-        "    adminIndex = adminIndexPayload;\n    sourcesManifest = sourcesManifestPayload;",
-        "    adminIndex = adminIndexPayload;\n    sourcesManifest = sourcesManifestPayload;\n"
+        "    adminIndex = adminIndexPayload;\n    sourcesManifest = sourcesManifestPayload;\n    indexAdminBoundaries(adminBoundariesPayload);\n    evaluateFirmsFreshnessRuntime();",
+        "    adminIndex = adminIndexPayload;\n    sourcesManifest = sourcesManifestPayload;\n    indexAdminBoundaries(adminBoundariesPayload);\n"
         + V2_WAVE3_JS
-        + "\n    hotspotHistory = hotspotHistoryPayload;",
+        + "\n    hotspotHistory = hotspotHistoryPayload;\n    window.hotspotHistory = hotspotHistoryPayload;\n    evaluateFirmsFreshnessRuntime();",
         "v2 wave3 JS helpers",
     )
 
@@ -855,6 +978,8 @@ def validate_patched(text: str) -> None:
         'id="ts-chart-tooltip"',
         'id="btn-expand-trend-chart"',
         'data/hotspots/history.json',
+        'function areDatesConsecutiveJs(',
+        'function areObservationPeriodsComparableJs(',
         'function buildTypedTimeSeriesForView(',
         'function renderReusableTimeSeriesChart(',
     ]

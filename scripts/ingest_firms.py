@@ -516,13 +516,175 @@ def summarize_day_points(day_points: list[dict], is_latest_global_date: bool = F
     }
 
 
+def _resolve_durable_region_dir(durable_store_dir: Path, region_id: str) -> Path:
+    nested = durable_store_dir / "hotspots" / region_id
+    if nested.exists():
+        return nested
+    direct = durable_store_dir / region_id
+    if direct.exists():
+        return direct
+    return nested
+
+
+def restore_durable_hotspot_store(
+    shard_root: Path,
+    durable_store_dir: Path | None,
+    regions: list[dict],
+    output_path: Path | None = None,
+    status_path: Path | None = None,
+    national_status_path: Path | None = None,
+) -> dict:
+    """Restore multi-day FIRMS history from a durable store directory before ingestion.
+
+    Idempotently merges any durable per-region daily shards with local shards so
+    ephemeral CI runners recover full multi-day history prior to fetching new NRT
+    window points.
+    """
+    if durable_store_dir is None or not durable_store_dir.exists():
+        return {"restored": False, "restoredDays": 0, "restoredPoints": 0}
+
+    restored_days = 0
+    restored_points = 0
+    for region_meta in regions:
+        rid = region_meta["id"]
+        src_dir = _resolve_durable_region_dir(durable_store_dir, rid)
+        if not src_dir.exists():
+            continue
+        dst_dir = shard_root / rid
+        for src_file in sorted(src_dir.glob("*.json")):
+            src_payload = load_json(src_file)
+            if not isinstance(src_payload, dict):
+                continue
+            src_pts = src_payload.get("points") if isinstance(src_payload.get("points"), list) else []
+            dst_file = dst_dir / src_file.name
+            dst_payload = load_json(dst_file) if dst_file.exists() else {}
+            dst_pts = dst_payload.get("points") if isinstance(dst_payload, dict) and isinstance(dst_payload.get("points"), list) else []
+            merged_pts = merge_points_idempotent(dst_pts, src_pts)
+            meta = dict(src_payload.get("meta") or {})
+            if isinstance(dst_payload, dict) and isinstance(dst_payload.get("meta"), dict):
+                dst_sync = str(dst_payload["meta"].get("lastSuccessfulSync") or "")
+                src_sync = str(meta.get("lastSuccessfulSync") or "")
+                if dst_sync > src_sync:
+                    meta = dict(dst_payload["meta"])
+            meta["count"] = len(merged_pts)
+            write_json_atomic(dst_file, {"meta": meta, "points": merged_pts})
+            restored_days += 1
+            restored_points += len(merged_pts)
+
+    for rel_candidates, target in [
+        (["hotspots/manifest.json", "manifest.json"], shard_root / "manifest.json"),
+        (["hotspots/history.json", "history.json"], shard_root / "history.json"),
+        (["hotspots/status.json", "status.json"], national_status_path),
+        (["firms.json"], output_path),
+        (["firms-status.json"], status_path),
+    ]:
+        if target is None:
+            continue
+        for rel in rel_candidates:
+            candidate = durable_store_dir / rel
+            if not candidate.exists():
+                continue
+            cand_data = load_json(candidate)
+            if not isinstance(cand_data, dict):
+                continue
+            if not target.exists():
+                write_json_atomic(target, cand_data)
+            else:
+                local_data = load_json(target)
+                local_sync = ""
+                cand_sync = ""
+                if isinstance(local_data, dict):
+                    local_sync = str(
+                        (local_data.get("meta") or {}).get("lastSuccessfulSync")
+                        or local_data.get("lastSuccessfulSync")
+                        or ""
+                    )
+                cand_sync = str(
+                    (cand_data.get("meta") or {}).get("lastSuccessfulSync")
+                    or cand_data.get("lastSuccessfulSync")
+                    or ""
+                )
+                if cand_sync > local_sync:
+                    write_json_atomic(target, cand_data)
+            break
+
+    return {
+        "restored": restored_days > 0,
+        "restoredDays": restored_days,
+        "restoredPoints": restored_points,
+    }
+
+
+def persist_durable_hotspot_store(
+    shard_root: Path,
+    durable_store_dir: Path | None,
+    regions: list[dict],
+    output_path: Path | None = None,
+    status_path: Path | None = None,
+    national_status_path: Path | None = None,
+) -> dict:
+    """Persist merged multi-day FIRMS shards and metadata back to durable storage."""
+    if durable_store_dir is None:
+        return {"persisted": False, "persistedDays": 0, "persistedPoints": 0}
+
+    hotspots_base = (
+        durable_store_dir
+        if durable_store_dir.name == "hotspots"
+        else durable_store_dir / "hotspots"
+    )
+    persisted_days = 0
+    persisted_points = 0
+    for region_meta in regions:
+        rid = region_meta["id"]
+        src_dir = shard_root / rid
+        if not src_dir.exists():
+            continue
+        dst_dir = hotspots_base / rid
+        for src_file in sorted(src_dir.glob("*.json")):
+            src_payload = load_json(src_file)
+            if not isinstance(src_payload, dict):
+                continue
+            src_pts = src_payload.get("points") if isinstance(src_payload.get("points"), list) else []
+            dst_file = dst_dir / src_file.name
+            dst_payload = load_json(dst_file) if dst_file.exists() else {}
+            dst_pts = dst_payload.get("points") if isinstance(dst_payload, dict) and isinstance(dst_payload.get("points"), list) else []
+            merged_pts = merge_points_idempotent(dst_pts, src_pts)
+            meta = dict(src_payload.get("meta") or {})
+            meta["count"] = len(merged_pts)
+            write_json_atomic(dst_file, {"meta": meta, "points": merged_pts})
+            persisted_days += 1
+            persisted_points += len(merged_pts)
+
+    for src, target in [
+        (shard_root / "manifest.json", hotspots_base / "manifest.json"),
+        (shard_root / "history.json", hotspots_base / "history.json"),
+        (national_status_path, hotspots_base / "status.json"),
+        (output_path, durable_store_dir / "firms.json"),
+        (status_path, durable_store_dir / "firms-status.json"),
+    ]:
+        if src is not None and src.exists():
+            data = load_json(src)
+            if isinstance(data, dict):
+                write_json_atomic(target, data)
+
+    return {
+        "persisted": persisted_days > 0,
+        "persistedDays": persisted_days,
+        "persistedPoints": persisted_points,
+    }
+
+
 def write_hotspot_shards(
     points: list[dict],
     shard_root: Path,
     regions: list[dict],
     meta: dict,
     preserve_existing: bool = True,
+    durable_store_dir: Path | None = None,
 ) -> dict:
+    if preserve_existing and durable_store_dir is not None:
+        restore_durable_hotspot_store(shard_root, durable_store_dir, regions)
+
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
 
     if preserve_existing and shard_root.exists():
@@ -629,10 +791,13 @@ def write_hotspot_shards(
             "count": total_all_points,
             "pipelineVersion": PIPELINE_VERSION,
             "historyPreserved": bool(preserve_existing),
+            "durableStoreActive": durable_store_dir is not None,
         },
         "regions": region_manifest,
     }
     write_json_atomic(shard_root / "manifest.json", manifest)
+    if preserve_existing and durable_store_dir is not None:
+        persist_durable_hotspot_store(shard_root, durable_store_dir, regions)
     return manifest
 
 
@@ -710,6 +875,23 @@ def run(args: argparse.Namespace) -> int:
     shard_root = Path(args.shard_root)
     national_status_path = Path(args.national_status)
     archive_dir = Path(args.archive_dir) if args.archive_dir else None
+    durable_arg = getattr(args, "durable_store_dir", None) or os.environ.get("FIRMS_HISTORY_STORE_DIR", "").strip()
+    durable_store_dir = Path(durable_arg) if durable_arg else None
+
+    try:
+        regions_for_restore = load_regions(regions_path) if regions_path.exists() else [{"id": rid, "label": rid} for rid in REGION_ORDER]
+    except Exception:
+        regions_for_restore = [{"id": rid, "label": rid} for rid in REGION_ORDER]
+
+    if durable_store_dir is not None:
+        restore_durable_hotspot_store(
+            shard_root,
+            durable_store_dir,
+            regions_for_restore,
+            output_path=output_path,
+            status_path=status_path,
+            national_status_path=national_status_path,
+        )
 
     legacy_previous_payload = load_json(output_path)
     legacy_previous_meta = (
@@ -804,7 +986,14 @@ def run(args: argparse.Namespace) -> int:
 
         # Publish the national sharded contract first. The current frontend does
         # not read it yet, so this can roll out independently from the UI.
-        write_hotspot_shards(points, shard_root, regions, meta)
+        write_hotspot_shards(
+            points,
+            shard_root,
+            regions,
+            meta,
+            preserve_existing=True,
+            durable_store_dir=durable_store_dir,
+        )
         write_json_atomic(national_status_path, healthy_status_payload(meta))
 
         if archive_dir is not None:
@@ -828,6 +1017,16 @@ def run(args: argparse.Namespace) -> int:
         legacy_payload = {"meta": legacy_meta, "points": legacy_points}
         write_json_atomic(output_path, legacy_payload)
         write_json_atomic(status_path, healthy_status_payload(legacy_meta, "kalimantan"))
+
+        if durable_store_dir is not None:
+            persist_durable_hotspot_store(
+                shard_root,
+                durable_store_dir,
+                regions,
+                output_path=output_path,
+                status_path=status_path,
+                national_status_path=national_status_path,
+            )
 
         region_counts = {
             region["id"]: sum(
@@ -883,6 +1082,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--regions", default=str(DEFAULT_REGIONS))
     parser.add_argument("--shard-root", default=str(DEFAULT_SHARD_ROOT))
     parser.add_argument("--national-status", default=str(DEFAULT_NATIONAL_STATUS))
+    parser.add_argument(
+        "--durable-store-dir",
+        default=None,
+        help="Durable history directory (or FIRMS_HISTORY_STORE_DIR) for persisting and restoring multi-day FIRMS shards across CI runs.",
+    )
     parser.add_argument(
         "--archive-dir",
         default=None,
