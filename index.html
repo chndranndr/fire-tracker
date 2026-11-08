@@ -1658,10 +1658,9 @@
       loadJson("data/affiliated-land-display-centers.json").catch(function () { return { meta: {}, centers: {} }; }),
       loadJson("data/admin-index.json").catch(function () { return null; }),
       loadJson("data/sources-manifest.json").catch(function () { return null; }),
-      loadJson("data/admin-boundaries.geojson").catch(function () { return null; }),
       loadJson("data/hotspots/history.json").catch(function () { return null; })
     ]).then(function (pair) {
-      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9], pair[10]);
+      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], null, pair[9]);
     }).catch(function (err) {
       elHeaderStats.textContent = "DATA ERROR";
       elStamp.textContent = "GAGAL MUAT JSON";
@@ -1848,10 +1847,14 @@
       return [minLon, minLat, maxLon, maxLat];
     }
 
+    var adminBoundariesLoadingPromises = {};
+
     function indexAdminBoundaries(fc) {
-      adminBoundariesGeoJson = fc;
-      adminBoundaryByProv = {};
-      adminBoundaryByKab = {};
+      if (fc && !adminBoundariesGeoJson) {
+        adminBoundariesGeoJson = fc;
+      }
+      if (!adminBoundaryByProv) adminBoundaryByProv = {};
+      if (!adminBoundaryByKab) adminBoundaryByKab = {};
       if (!fc || !Array.isArray(fc.features)) return;
       fc.features.forEach(function (feat) {
         if (!feat || !feat.geometry) return;
@@ -1863,7 +1866,7 @@
         var pName = props.province || (lvl === "province" ? props.name : null);
         var kName = props.kabupaten || (lvl === "kabupaten" ? props.name : null);
         if (lvl === "province" && pName) {
-          adminBoundaryByProv[pName] = {
+          var pEntry = {
             name: pName,
             bpsCode: props.bpsCode || null,
             region: props.region || null,
@@ -1871,8 +1874,12 @@
             feature: feat,
             bbox: bbox
           };
+          adminBoundaryByProv[pName] = pEntry;
+          if (props.bpsCode) {
+            adminBoundaryByProv[props.bpsCode] = pEntry;
+          }
         } else if (lvl === "kabupaten" && kName) {
-          adminBoundaryByKab[kName] = {
+          var kEntry = {
             name: kName,
             province: props.province || null,
             bpsCode: props.bpsCode || null,
@@ -1882,8 +1889,37 @@
             feature: feat,
             bbox: bbox
           };
+          adminBoundaryByKab[kName] = kEntry;
+          if (props.bpsCode) {
+            adminBoundaryByKab[props.bpsCode] = kEntry;
+          }
+          if (!kName.toLowerCase().startsWith("kota ")) {
+            adminBoundaryByKab["Kabupaten " + kName] = kEntry;
+          }
         }
       });
+    }
+
+    function ensureAdminBoundariesLoaded(regionId) {
+      var targetRegion = (regionId && regionId !== "indonesia") ? regionId : null;
+      var cacheKey = targetRegion || "all";
+      if (adminBoundariesLoadingPromises[cacheKey]) {
+        return adminBoundariesLoadingPromises[cacheKey];
+      }
+      var url = targetRegion
+        ? "data/admin-boundaries/" + targetRegion + ".geojson"
+        : "data/admin-boundaries.geojson";
+      var p = loadJson(url).catch(function () {
+        if (targetRegion) {
+          return loadJson("data/admin-boundaries.geojson").catch(function () { return null; });
+        }
+        return null;
+      }).then(function (fc) {
+        if (fc) indexAdminBoundaries(fc);
+        return fc;
+      });
+      adminBoundariesLoadingPromises[cacheKey] = p;
+      return p;
     }
 
     function pointInRingJs(lon, lat, ring) {
@@ -4784,7 +4820,12 @@
       updateProvinceOptions(regionId);
       elTimeLabel.textContent = "memuat " + (regionId === "indonesia" ? "Indonesia" : ((regionById[regionId] || {}).label || regionId)) + "…";
       var date = currentDate();
-      return Promise.all([loadHotspotDay(regionId, date), loadRegionStatic(regionId), loadConcessionInventoryManifest(regionId)]).then(function (pair) {
+      return Promise.all([
+        loadHotspotDay(regionId, date),
+        loadRegionStatic(regionId),
+        loadConcessionInventoryManifest(regionId),
+        (regionId !== "indonesia" ? ensureAdminBoundariesLoaded(regionId) : Promise.resolve(null))
+      ]).then(function (pair) {
         if (token !== regionRequest) return;
         applyStaticPayload(pair[1]);
         currentConcessionInventoryManifest = pair[2];
@@ -5419,6 +5460,24 @@
             dashArray: "4 4"
           }
         }).addTo(adminBoundaryLayer);
+      } else if ((state.kab || state.prov) && typeof ensureAdminBoundariesLoaded === "function") {
+        var reg = state.region !== "indonesia" ? state.region : (state.prov ? resolveProvinceRegionJs(state.prov) : null);
+        ensureAdminBoundariesLoaded(reg).then(function () {
+          var entry = state.kab ? adminBoundaryByKab[state.kab] : (state.prov ? adminBoundaryByProv[state.prov] : null);
+          if (entry && entry.feature && adminBoundaryLayer) {
+            adminBoundaryLayer.clearLayers();
+            L.geoJSON(entry.feature, {
+              style: {
+                color: "#38bdf8",
+                weight: 1.8,
+                opacity: 0.85,
+                fillColor: "#38bdf8",
+                fillOpacity: 0.05,
+                dashArray: "4 4"
+              }
+            }).addTo(adminBoundaryLayer);
+          }
+        });
       }
     }
 

@@ -864,18 +864,16 @@ def build_patched_index(source: str) -> str:
     # 3. Load data/hotspots/history.json in Promise.all
     old_promise_all = (
         '      loadJson("data/admin-index.json").catch(function () { return null; }),\n'
-        '      loadJson("data/sources-manifest.json").catch(function () { return null; }),\n'
-        '      loadJson("data/admin-boundaries.geojson").catch(function () { return null; })\n'
+        '      loadJson("data/sources-manifest.json").catch(function () { return null; })\n'
         '    ]).then(function (pair) {\n'
-        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9]);'
+        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], null);'
     )
     new_promise_all = (
         '      loadJson("data/admin-index.json").catch(function () { return null; }),\n'
         '      loadJson("data/sources-manifest.json").catch(function () { return null; }),\n'
-        '      loadJson("data/admin-boundaries.geojson").catch(function () { return null; }),\n'
         '      loadJson("data/hotspots/history.json").catch(function () { return null; })\n'
         '    ]).then(function (pair) {\n'
-        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9], pair[10]);'
+        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], null, pair[9]);'
     )
     text = replace_once(text, old_promise_all, new_promise_all, "v2 wave3 load history.json")
 

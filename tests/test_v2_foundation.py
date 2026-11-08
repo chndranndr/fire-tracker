@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -739,6 +740,138 @@ class V2FoundationContractTests(unittest.TestCase):
         self.assertEqual(v2.extract_bucket_filtered_count(bucket, conf="nominal"), 70)
         # Unfiltered
         self.assertEqual(v2.extract_bucket_filtered_count(bucket), 100)
+
+    def test_zero_duplicate_administrative_ids_and_all_26_regencies_restored(self):
+        # Review finding #1: 0 duplicate IDs, all 26 regencies restored with authoritative BPS codes
+        admin_fc = json.loads((ROOT / "data" / "admin-boundaries.geojson").read_text(encoding="utf-8"))
+        features = admin_fc.get("features") or []
+        self.assertEqual(len(features), 535)
+
+        # 1. Feature IDs must be globally unique
+        ids = [f.get("id") for f in features]
+        self.assertTrue(all(ids), "every feature must have a non-empty id")
+        self.assertEqual(len(ids), len(set(ids)), f"duplicate feature IDs found: {len(ids)} vs {len(set(ids))}")
+
+        # 2. Provinces: exactly 38 authoritative provinces with unique 2-digit BPS codes
+        prov_features = [f for f in features if f["properties"].get("level") == "province"]
+        self.assertEqual(len(prov_features), 38)
+        prov_codes = [f["properties"].get("bpsCode") for f in prov_features]
+        self.assertEqual(len(prov_codes), len(set(prov_codes)))
+
+        # 3. Kabupaten / Kota: exactly 497 authoritative regencies and cities with unique 4-digit BPS codes
+        kab_features = [f for f in features if f["properties"].get("level") == "kabupaten"]
+        self.assertEqual(len(kab_features), 497)
+        kab_codes = [f["properties"].get("bpsCode") for f in kab_features]
+        self.assertEqual(len(kab_codes), len(set(kab_codes)), "duplicate kabupaten BPS codes found")
+
+        # 4. No water bodies / lakes / synthetic features
+        for f in features:
+            name = f["properties"].get("name", "")
+            self.assertFalse(
+                any(name.startswith(w) for w in ("Danau", "Waduk")),
+                f"water body feature must not be in administrative boundaries: {name}",
+            )
+            self.assertNotEqual(f["properties"].get("bpsCode", "")[2:], "88")
+
+        # 5. Verify all 26 regencies previously colliding with cities are restored
+        pairs_to_verify = [
+            ("Bekasi", "3216", "Kota Bekasi", "3275"),
+            ("Bogor", "3201", "Kota Bogor", "3271"),
+            ("Bandung", "3204", "Kota Bandung", "3273"),
+            ("Cirebon", "3209", "Kota Cirebon", "3274"),
+            ("Sukabumi", "3202", "Kota Sukabumi", "3272"),
+            ("Tasikmalaya", "3206", "Kota Tasikmalaya", "3278"),
+            ("Magelang", "3308", "Kota Magelang", "3371"),
+            ("Semarang", "3322", "Kota Semarang", "3374"),
+            ("Pekalongan", "3326", "Kota Pekalongan", "3375"),
+            ("Tegal", "3328", "Kota Tegal", "3376"),
+            ("Blitar", "3505", "Kota Blitar", "3572"),
+            ("Kediri", "3506", "Kota Kediri", "3571"),
+            ("Malang", "3507", "Kota Malang", "3573"),
+            ("Probolinggo", "3513", "Kota Probolinggo", "3574"),
+            ("Pasuruan", "3514", "Kota Pasuruan", "3575"),
+            ("Mojokerto", "3516", "Kota Mojokerto", "3576"),
+            ("Madiun", "3519", "Kota Madiun", "3577"),
+            ("Tangerang", "3603", "Kota Tangerang", "3671"),
+            ("Serang", "3604", "Kota Serang", "3673"),
+            ("Bima", "5206", "Kota Bima", "5272"),
+            ("Kupang", "5303", "Kota Kupang", "5371"),
+            ("Mempawah", "6104", "Kota Pontianak", "6171"),
+            ("Gorontalo", "7502", "Kota Gorontalo", "7571"),
+            ("Jayapura", "9103", "Kota Jayapura", "9171"),
+            ("Sorong", "9601", "Kota Sorong", "9671"),
+            ("Solok", "1303", "Kota Solok", "1372"),
+        ]
+        by_bps = {f["properties"].get("bpsCode"): f for f in kab_features}
+        for kab_name, kab_code, kota_name, kota_code in pairs_to_verify:
+            self.assertIn(kab_code, by_bps, f"missing regency {kab_name} ({kab_code})")
+            self.assertIn(kota_code, by_bps, f"missing city {kota_name} ({kota_code})")
+            kab_f = by_bps[kab_code]
+            kota_f = by_bps[kota_code]
+            self.assertEqual(kab_f["properties"]["kabupaten"], kab_name)
+            self.assertEqual(kota_f["properties"]["kabupaten"], kota_name)
+            # Must have non-identical bounding boxes
+            self.assertNotEqual(
+                kab_f["properties"]["bbox"],
+                kota_f["properties"]["bbox"],
+                f"regency and city {kab_name} must have distinct geometries",
+            )
+
+    def test_python_and_javascript_point_in_polygon_consistency_for_regencies_and_cities(self):
+        # Review finding #2: Python and JavaScript produce consistent spatial filtering
+        admin_fc = json.loads((ROOT / "data" / "admin-boundaries.geojson").read_text(encoding="utf-8"))
+        by_bps = {f["properties"].get("bpsCode"): f for f in admin_fc["features"]}
+
+        kab_bekasi = by_bps["3216"]
+        kota_bekasi = by_bps["3275"]
+
+        # Ground truth coordinates
+        cikarang_kab = (107.15, -6.36)       # Cikarang (Kabupaten Bekasi)
+        bekasi_city_ctr = (106.99, -6.24)    # Bekasi City Center (Kota Bekasi)
+
+        # Python point in polygon
+        in_kab_c = v2.point_in_geometry(cikarang_kab[0], cikarang_kab[1], kab_bekasi["geometry"])
+        in_kota_c = v2.point_in_geometry(cikarang_kab[0], cikarang_kab[1], kota_bekasi["geometry"])
+        self.assertTrue(in_kab_c)
+        self.assertFalse(in_kota_c)
+
+        in_kab_k = v2.point_in_geometry(bekasi_city_ctr[0], bekasi_city_ctr[1], kab_bekasi["geometry"])
+        in_kota_k = v2.point_in_geometry(bekasi_city_ctr[0], bekasi_city_ctr[1], kota_bekasi["geometry"])
+        self.assertFalse(in_kab_k)
+        self.assertTrue(in_kota_k)
+
+        # Bogor verification
+        kab_bogor = by_bps["3201"]
+        kota_bogor = by_bps["3271"]
+        bogor_kebun_raya = (106.799, -6.597) # Bogor Botanical Gardens (Kota Bogor)
+        puncak_bogor = (106.96, -6.70)       # Puncak (Kabupaten Bogor)
+
+        self.assertFalse(v2.point_in_geometry(bogor_kebun_raya[0], bogor_kebun_raya[1], kab_bogor["geometry"]))
+        self.assertTrue(v2.point_in_geometry(bogor_kebun_raya[0], bogor_kebun_raya[1], kota_bogor["geometry"]))
+
+        self.assertTrue(v2.point_in_geometry(puncak_bogor[0], puncak_bogor[1], kab_bogor["geometry"]))
+        self.assertFalse(v2.point_in_geometry(puncak_bogor[0], puncak_bogor[1], kota_bogor["geometry"]))
+
+    def test_lazy_loading_regional_administrative_boundaries_shards(self):
+        # Review finding #3: Admin boundaries sharded by region for fast lazy loading
+        shards = v2.write_regional_admin_boundaries()
+        self.assertEqual(len(shards), 7)
+        expected_regions = {"bali-nusra", "jawa", "kalimantan", "maluku", "papua", "sulawesi", "sumatra"}
+        self.assertEqual(set(shards.keys()), expected_regions)
+
+        admin_dir = ROOT / "data" / "admin-boundaries"
+        total_kabs = 0
+        for reg_id in expected_regions:
+            shard_path = admin_dir / f"{reg_id}.geojson"
+            self.assertTrue(shard_path.exists(), f"missing shard {shard_path}")
+            # Ensure shard file size is lightweight (< 1.6 MB)
+            size_bytes = shard_path.stat().st_size
+            self.assertLess(size_bytes, 1_600_000, f"shard {reg_id} too large: {size_bytes} bytes")
+            shard_data = json.loads(shard_path.read_text(encoding="utf-8"))
+            self.assertEqual(shard_data.get("type"), "FeatureCollection")
+            kab_count = sum(1 for f in shard_data.get("features", []) if f["properties"].get("level") == "kabupaten")
+            total_kabs += kab_count
+        self.assertEqual(total_kabs, 497, f"total kabupaten across shards must match 497, got {total_kabs}")
 
 
 if __name__ == "__main__":

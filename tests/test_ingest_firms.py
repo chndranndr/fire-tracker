@@ -464,6 +464,94 @@ class IngestFirmsTests(unittest.TestCase):
         )
         self.assertEqual(summary_concluded["completeness"], "complete")
 
+    def test_real_actions_worktree_persistence_sequence_e2e(self):
+        # Review finding #4: Production FIRMS history persistence verified against real git execution
+        # Simulates consecutive GitHub Actions container executions with ephemeral workspaces
+        import shutil
+        import subprocess
+
+        regions = [{"id": region, "label": region} for region in ingest_firms.REGION_ORDER]
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bare = root / "remote-origin.git"
+            subprocess.run(["git", "init", "--bare", "--initial-branch=main", str(bare)], check=True, capture_output=True)
+
+            # Ephemeral Runner 1 (Initial run: firms-history-data does not exist on remote yet)
+            runner_1 = root / "runner_1"
+            subprocess.run(["git", "clone", str(bare), str(runner_1)], check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "test-bot"], cwd=runner_1, check=True)
+            subprocess.run(["git", "config", "user.email", "bot@test.com"], cwd=runner_1, check=True)
+            (runner_1 / "README.md").write_text("seed", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=runner_1, check=True)
+            subprocess.run(["git", "commit", "-m", "init main"], cwd=runner_1, check=True)
+            subprocess.run(["git", "push", "origin", "main"], cwd=runner_1, check=True)
+
+            # Exact restore step from firms-nrt.yml
+            store_1 = root / "store_1"
+            store_1.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "fetch", "origin", "firms-history-data:refs/remotes/origin/firms-history-data"], cwd=runner_1, capture_output=True)
+            chk = subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/firms-history-data"], cwd=runner_1)
+            self.assertNotEqual(chk.returncode, 0, "remote branch must not exist on first run")
+            subprocess.run(["git", "worktree", "add", "--detach", str(store_1)], cwd=runner_1, check=True, capture_output=True)
+            subprocess.run(["git", "checkout", "--orphan", "firms-history-data"], cwd=store_1, check=True, capture_output=True)
+            subprocess.run(["git", "rm", "-rf", "."], cwd=store_1, check=True, capture_output=True)
+
+            batch_day_1 = [
+                {
+                    "observationId": "S-NPP|2026-08-20|0600|0.50000|110.00000",
+                    "lat": 0.5, "lon": 110.0, "date": "2026-08-20", "time": "0600",
+                    "platform": "S-NPP", "conf": "nominal", "dn": "D", "frp": 10.0, "region": "kalimantan",
+                }
+            ]
+            meta_1 = {"lastSuccessfulSync": "2026-08-20T07:00:00Z", "newestDetectionUtc": "2026-08-20T06:00:00Z", "oldestDetectionUtc": "2026-08-20T06:00:00Z", "platforms": ["S-NPP"]}
+            ingest_firms.write_hotspot_shards(batch_day_1, runner_1 / "data" / "hotspots", regions, meta_1, preserve_existing=True, durable_store_dir=store_1)
+
+            # Exact persist step from firms-nrt.yml
+            (store_1 / "hotspots").mkdir(parents=True, exist_ok=True)
+            for item in (runner_1 / "data" / "hotspots").iterdir():
+                dest = store_1 / "hotspots" / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, dest)
+            subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=store_1, check=True)
+            subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], cwd=store_1, check=True)
+            subprocess.run(["git", "add", "-A"], cwd=store_1, check=True)
+            subprocess.run(["git", "commit", "-m", "chore(firms): persist durable multi-day hotspot history"], cwd=store_1, check=True, capture_output=True)
+            subprocess.run(["git", "push", "origin", "firms-history-data"], cwd=store_1, check=True, capture_output=True)
+
+            # Ephemeral Runner 2 (Next scheduled Actions run: brand new container workspace)
+            runner_2 = root / "runner_2"
+            subprocess.run(["git", "clone", str(bare), str(runner_2)], check=True, capture_output=True)
+            self.assertFalse((runner_2 / "data" / "hotspots").exists())
+
+            # Exact restore step from firms-nrt.yml
+            store_2 = root / "store_2"
+            store_2.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "fetch", "origin", "firms-history-data:refs/remotes/origin/firms-history-data"], cwd=runner_2, check=True, capture_output=True)
+            chk2 = subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/firms-history-data"], cwd=runner_2)
+            self.assertEqual(chk2.returncode, 0, "remote branch must exist on runner 2")
+            subprocess.run(["git", "worktree", "add", "-B", "firms-history-data", str(store_2), "origin/firms-history-data"], cwd=runner_2, check=True, capture_output=True)
+
+            # Day 2 ingest batch (2026-08-20 aged out of FIRMS API window)
+            batch_day_2 = [
+                {
+                    "observationId": "NOAA-20|2026-08-21|0600|0.50000|110.00000",
+                    "lat": 0.5, "lon": 110.0, "date": "2026-08-21", "time": "0600",
+                    "platform": "NOAA-20", "conf": "high", "dn": "D", "frp": 25.0, "region": "kalimantan",
+                }
+            ]
+            meta_2 = {"lastSuccessfulSync": "2026-08-21T07:00:00Z", "newestDetectionUtc": "2026-08-21T06:00:00Z", "oldestDetectionUtc": "2026-08-21T06:00:00Z", "platforms": ["NOAA-20"]}
+            manifest_2 = ingest_firms.write_hotspot_shards(batch_day_2, runner_2 / "data" / "hotspots", regions, meta_2, preserve_existing=True, durable_store_dir=store_2)
+
+            # Assert history from day 1 was successfully restored into runner_2!
+            self.assertTrue((runner_2 / "data" / "hotspots" / "kalimantan" / "2026-08-20.json").exists())
+            self.assertTrue((runner_2 / "data" / "hotspots" / "kalimantan" / "2026-08-21.json").exists())
+            dates_in_manifest = [d["date"] for d in manifest_2["regions"]["kalimantan"]["days"]]
+            self.assertEqual(dates_in_manifest, ["2026-08-21", "2026-08-20"])
+            self.assertEqual(manifest_2["meta"]["oldestDetectionUtc"], "2026-08-20T06:00:00Z")
+
 
 if __name__ == "__main__":
     unittest.main()

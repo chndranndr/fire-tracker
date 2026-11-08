@@ -52,11 +52,12 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/firms-history-store
-          git fetch origin firms-history-data:refs/remotes/origin/firms-history-data || true
+          git fetch origin firms-history-data:refs/remotes/origin/firms-history-data 2>/dev/null || true
           if git show-ref --verify --quiet refs/remotes/origin/firms-history-data; then
             git worktree add -B firms-history-data /tmp/firms-history-store origin/firms-history-data
           else
-            git worktree add --orphan -B firms-history-data /tmp/firms-history-store
+            git worktree add --detach /tmp/firms-history-store
+            (cd /tmp/firms-history-store && git checkout --orphan firms-history-data && git rm -rf .)
           fi
 
       - name: Fetch and validate FIRMS
@@ -84,6 +85,7 @@ jobs:
         if: ${{ always() && steps.publish-mode.outputs.should_publish == 'true' && steps.ingest.outputs.result == '0' }}
         run: |
           mkdir -p /tmp/firms-history-store/hotspots
+          cp -r data/hotspots/* /tmp/firms-history-store/hotspots/ || true
           cp -f data/hotspots/history.json /tmp/firms-history-store/hotspots/history.json || true
           cp -f data/hotspots/manifest.json /tmp/firms-history-store/hotspots/manifest.json || true
           cd /tmp/firms-history-store

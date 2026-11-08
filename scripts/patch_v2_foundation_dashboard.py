@@ -789,10 +789,14 @@ V2_JS_HELPERS = r"""
       return [minLon, minLat, maxLon, maxLat];
     }
 
+    var adminBoundariesLoadingPromises = {};
+
     function indexAdminBoundaries(fc) {
-      adminBoundariesGeoJson = fc;
-      adminBoundaryByProv = {};
-      adminBoundaryByKab = {};
+      if (fc && !adminBoundariesGeoJson) {
+        adminBoundariesGeoJson = fc;
+      }
+      if (!adminBoundaryByProv) adminBoundaryByProv = {};
+      if (!adminBoundaryByKab) adminBoundaryByKab = {};
       if (!fc || !Array.isArray(fc.features)) return;
       fc.features.forEach(function (feat) {
         if (!feat || !feat.geometry) return;
@@ -804,7 +808,7 @@ V2_JS_HELPERS = r"""
         var pName = props.province || (lvl === "province" ? props.name : null);
         var kName = props.kabupaten || (lvl === "kabupaten" ? props.name : null);
         if (lvl === "province" && pName) {
-          adminBoundaryByProv[pName] = {
+          var pEntry = {
             name: pName,
             bpsCode: props.bpsCode || null,
             region: props.region || null,
@@ -812,8 +816,12 @@ V2_JS_HELPERS = r"""
             feature: feat,
             bbox: bbox
           };
+          adminBoundaryByProv[pName] = pEntry;
+          if (props.bpsCode) {
+            adminBoundaryByProv[props.bpsCode] = pEntry;
+          }
         } else if (lvl === "kabupaten" && kName) {
-          adminBoundaryByKab[kName] = {
+          var kEntry = {
             name: kName,
             province: props.province || null,
             bpsCode: props.bpsCode || null,
@@ -823,8 +831,37 @@ V2_JS_HELPERS = r"""
             feature: feat,
             bbox: bbox
           };
+          adminBoundaryByKab[kName] = kEntry;
+          if (props.bpsCode) {
+            adminBoundaryByKab[props.bpsCode] = kEntry;
+          }
+          if (!kName.toLowerCase().startsWith("kota ")) {
+            adminBoundaryByKab["Kabupaten " + kName] = kEntry;
+          }
         }
       });
+    }
+
+    function ensureAdminBoundariesLoaded(regionId) {
+      var targetRegion = (regionId && regionId !== "indonesia") ? regionId : null;
+      var cacheKey = targetRegion || "all";
+      if (adminBoundariesLoadingPromises[cacheKey]) {
+        return adminBoundariesLoadingPromises[cacheKey];
+      }
+      var url = targetRegion
+        ? "data/admin-boundaries/" + targetRegion + ".geojson"
+        : "data/admin-boundaries.geojson";
+      var p = loadJson(url).catch(function () {
+        if (targetRegion) {
+          return loadJson("data/admin-boundaries.geojson").catch(function () { return null; });
+        }
+        return null;
+      }).then(function (fc) {
+        if (fc) indexAdminBoundaries(fc);
+        return fc;
+      });
+      adminBoundariesLoadingPromises[cacheKey] = p;
+      return p;
     }
 
     function pointInRingJs(lon, lat, ring) {
@@ -1750,10 +1787,9 @@ def build_patched_index(source: str) -> str:
         '      loadJson("data/affiliated-land-holdings.json").catch(function () { return { meta: {}, people: [], holdings: [] }; }),\n'
         '      loadJson("data/affiliated-land-display-centers.json").catch(function () { return { meta: {}, centers: {} }; }),\n'
         '      loadJson("data/admin-index.json").catch(function () { return null; }),\n'
-        '      loadJson("data/sources-manifest.json").catch(function () { return null; }),\n'
-        '      loadJson("data/admin-boundaries.geojson").catch(function () { return null; })\n'
+        '      loadJson("data/sources-manifest.json").catch(function () { return null; })\n'
         '    ]).then(function (pair) {\n'
-        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], pair[9]);'
+        '      boot(pair[0], pair[1], pair[2], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8], null);'
     )
     text = replace_once(text, old_loader, new_loader, "v2 manifest loader")
 
@@ -1888,6 +1924,24 @@ def build_patched_index(source: str) -> str:
         "            dashArray: \"4 4\"\n"
         "          }\n"
         "        }).addTo(adminBoundaryLayer);\n"
+        "      } else if ((state.kab || state.prov) && typeof ensureAdminBoundariesLoaded === \"function\") {\n"
+        "        var reg = state.region !== \"indonesia\" ? state.region : (state.prov ? resolveProvinceRegionJs(state.prov) : null);\n"
+        "        ensureAdminBoundariesLoaded(reg).then(function () {\n"
+        "          var entry = state.kab ? adminBoundaryByKab[state.kab] : (state.prov ? adminBoundaryByProv[state.prov] : null);\n"
+        "          if (entry && entry.feature && adminBoundaryLayer) {\n"
+        "            adminBoundaryLayer.clearLayers();\n"
+        "            L.geoJSON(entry.feature, {\n"
+        "              style: {\n"
+        "                color: \"#38bdf8\",\n"
+        "                weight: 1.8,\n"
+        "                opacity: 0.85,\n"
+        "                fillColor: \"#38bdf8\",\n"
+        "                fillOpacity: 0.05,\n"
+        "                dashArray: \"4 4\"\n"
+        "              }\n"
+        "            }).addTo(adminBoundaryLayer);\n"
+        "          }\n"
+        "        });\n"
         "      }\n"
         "    }\n\n"
         "    function refreshFirmsLayer() {\n"
@@ -2124,6 +2178,7 @@ def validate_patched(text: str) -> None:
         'data/sources-manifest.json',
         'data/admin-boundaries.geojson',
         'function evaluateFirmsFreshnessRuntime(nowMs)',
+        'function ensureAdminBoundariesLoaded(regionId)',
         'function pointInBoundaryGeometry(lon, lat, entryOrGeom)',
         'function pointMatchesProvince(p, provName)',
         'function pointMatchesKabupaten(p, kabName, activeProvName)',

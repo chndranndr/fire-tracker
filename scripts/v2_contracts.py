@@ -229,6 +229,9 @@ AUTHORITATIVE_KABUPATEN_PROVINCE_OVERRIDES: dict[str, str] = {
     "Kota Bandar Lampung": "Lampung",
     "Lampung Selatan": "Lampung",
     "Tangerang": "Banten",
+    "Bekasi": "Jawa Barat",
+    "Kota Bekasi": "Jawa Barat",
+    "Mempawah": "Kalimantan Barat",
     "Magetan": "Jawa Timur",
     "Tabalong": "Kalimantan Selatan",
     "Paser": "Kalimantan Timur",
@@ -451,7 +454,7 @@ def build_authoritative_kabupaten_registry(root: Path = ROOT) -> dict[str, dict[
                 else [114.0, -2.0]
             )
             if k and p:
-                registry[k] = {
+                entry = {
                     "kabupaten": k,
                     "province": p,
                     "bpsCode": bps_code,
@@ -459,6 +462,11 @@ def build_authoritative_kabupaten_registry(root: Path = ROOT) -> dict[str, dict[
                     "region": region,
                     "seedLonLat": seed_lon_lat,
                 }
+                registry[k] = entry
+                if not k.startswith("Kota "):
+                    registry[f"Kabupaten {k}"] = entry
+                if bps_code:
+                    registry[bps_code] = entry
 
     if root == ROOT:
         _CACHED_KABUPATEN_REGISTRY = registry
@@ -1164,6 +1172,33 @@ def build_admin_boundaries_geojson(root: Path = ROOT) -> dict[str, Any]:
         return fc
 
     raise FileNotFoundError(f"Authoritative administrative boundaries missing at {admin_path}")
+ 
+ 
+def write_regional_admin_boundaries(root: Path = ROOT) -> dict[str, int]:
+    """Shard administrative boundaries by region for fast lazy loading (#3)."""
+    admin_boundaries = build_admin_boundaries_geojson(root)
+    regions_payload = read_json(root / "data" / "regions.json", {"regions": []})
+    regions_list = regions_payload.get("regions") or []
+    out_dir = root / "data" / "admin-boundaries"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    counts: dict[str, int] = {}
+    for r in regions_list:
+        rid = str(r["id"])
+        provs = set(r.get("provinces") or [])
+        reg_features = [
+            f
+            for f in admin_boundaries.get("features", [])
+            if f.get("properties", {}).get("region") == rid
+            or f.get("properties", {}).get("province") in provs
+        ]
+        reg_fc = {
+            "type": "FeatureCollection",
+            "region": rid,
+            "features": reg_features,
+        }
+        write_json_atomic(out_dir / f"{rid}.geojson", reg_fc)
+        counts[rid] = len(reg_features)
+    return counts
 
 
 
@@ -3278,6 +3313,7 @@ def generate_v2_Foundation_artifacts(
         validate_time_series_contract(ts)
     if not check_only:
         write_json_atomic(root / "data" / "admin-boundaries.geojson", admin_boundaries)
+        write_regional_admin_boundaries(root=root)
         write_json_atomic(root / "data" / "admin-index.json", admin_index)
         write_json_atomic(root / "data" / "sources-manifest.json", sources_manifest)
         write_json_atomic(root / "data" / "hotspots" / "history.json", hotspot_history)

@@ -142,6 +142,35 @@ assert.strictEqual(context.resolveKabupatenProvinceJs("Tabalong"), "Kalimantan S
 assert.strictEqual(context.resolveKabupatenProvinceJs("Paser"), "Kalimantan Timur");
 assert.strictEqual(context.resolveKabupatenProvinceJs("Kutai Timur"), "Kalimantan Timur");
 
+// Verify regency and city indexing separation and uniqueness (Review finding #1 & #2)
+assert.strictEqual(context.adminBoundaryByKab["Bekasi"].bpsCode, "3216");
+assert.strictEqual(context.adminBoundaryByKab["Kota Bekasi"].bpsCode, "3275");
+assert.strictEqual(context.adminBoundaryByKab["Kabupaten Bekasi"].bpsCode, "3216");
+assert.strictEqual(context.adminBoundaryByKab["3216"].bpsCode, "3216");
+assert.strictEqual(context.adminBoundaryByKab["3275"].bpsCode, "3275");
+assert.notDeepStrictEqual(
+  context.adminBoundaryByKab["Bekasi"].bbox,
+  context.adminBoundaryByKab["Kota Bekasi"].bbox,
+  "Kabupaten Bekasi and Kota Bekasi must have distinct bounding boxes"
+);
+
+// Verify Bogor regency vs city separation
+assert.strictEqual(context.adminBoundaryByKab["Bogor"].bpsCode, "3201");
+assert.strictEqual(context.adminBoundaryByKab["Kota Bogor"].bpsCode, "3271");
+assert.strictEqual(context.adminBoundaryByKab["Kabupaten Bogor"].bpsCode, "3201");
+
+// Verify pointInBoundaryGeometry consistency on ground truth coordinates (Review finding #2)
+// Cikarang (Kabupaten Bekasi): 107.15, -6.36
+assert.strictEqual(context.pointInBoundaryGeometry(107.15, -6.36, context.adminBoundaryByKab["Bekasi"]), true);
+assert.strictEqual(context.pointInBoundaryGeometry(107.15, -6.36, context.adminBoundaryByKab["Kota Bekasi"]), false);
+
+// Bekasi City Center (Kota Bekasi): 106.99, -6.24
+assert.strictEqual(context.pointInBoundaryGeometry(106.99, -6.24, context.adminBoundaryByKab["Bekasi"]), false);
+assert.strictEqual(context.pointInBoundaryGeometry(106.99, -6.24, context.adminBoundaryByKab["Kota Bekasi"]), true);
+
+// Verify lazy loading function exists (Review finding #3)
+assert.strictEqual(typeof context.ensureAdminBoundariesLoaded, "function");
+
 // 2. Verify runtime freshness evaluation against current UTC time on page load (Fix #2)
 const freshEval = context.evaluateFirmsFreshnessRuntime(Date.parse("2026-08-28T05:30:00Z"));
 assert.strictEqual(freshEval.state, "fresh");
