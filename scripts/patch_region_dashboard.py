@@ -50,7 +50,7 @@ def build_patched_index(source: str) -> str:
         text,
         '          <div class="filter-primary">\n'
         '            <label>Sektor utama\n',
-        '          <div class="filter-primary">\n'
+        '          <div class="filter-primary" id="f-region-filter-wrap" style="display: none;">\n'
         '            <label>Wilayah\n'
         '              <select id="f-region">\n'
         '                <option value="indonesia">Indonesia · ringkasan</option>\n'
