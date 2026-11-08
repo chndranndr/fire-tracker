@@ -41,6 +41,9 @@ def validate_json_contracts() -> None:
         ROOT / "data/concessions/kalimantan/inventory/manifest.json",
         ROOT / "data/affiliated-land-holdings.json",
         ROOT / "data/affiliated-land-display-centers.json",
+        ROOT / "data/admin-index.json",
+        ROOT / "data/sources-manifest.json",
+        ROOT / "data/hotspots/history.json",
     ):
         with path.open(encoding="utf-8") as handle:
             json.load(handle)
@@ -68,6 +71,7 @@ def validate_patched_html(html: str) -> Path:
     assert "jarak centroid kasar" not in html
     assert 'id="f-region"' in html
     assert "data/hotspots/manifest.json" in html
+    assert "data/hotspots/history.json" in html
     assert "function selectRegion(regionId, preferredDate)" in html
     assert "function refreshNationalSummary()" in html
     assert "chunkedLoading: true" in html
@@ -77,13 +81,32 @@ def validate_patched_html(html: str) -> Path:
     assert 'id="tog-inventory"' in html
     assert "function refreshConcessionInventoryLayer()" in html
     assert "NO FIRE ATTRIBUTION" in html
+    assert 'id="primary-nav"' in html
+    assert 'id="shared-filter-bar"' in html
+    assert 'id="kpi-grid"' in html
+    assert 'id="provenance-drawer"' in html
+    assert "data/admin-index.json" in html
+    assert "data/sources-manifest.json" in html
+    assert "function setView(viewName, skipUrlSync)" in html
+    assert "DATA UNAVAILABLE" in html
+    assert 'id="concession-explorer-controls"' in html
+    assert 'id="concession-pagination"' in html
+    assert 'id="map-layer-control"' in html
+    assert 'id="focused-concession-bar"' in html
+    assert "function buildUnifiedConcessionViewModels(" in html
+    assert "function showUnifiedConcessionDetail(" in html
+    assert 'id="ts-controls-bar"' in html
+    assert 'id="ts-metric-select"' in html
+    assert 'id="ts-delta-strip"' in html
+    assert "function renderReusableTimeSeriesChart(" in html
+    assert "function buildTypedTimeSeriesForView(" in html
 
     scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.S | re.I)
     inline = "\n".join(script for script in scripts if script.strip())
     js_path = Path(tempfile.gettempdir()) / "meratus-inline.js"
     js_path.write_text(inline, encoding="utf-8")
     subprocess.run(["node", "--check", str(js_path)], check=True, cwd=ROOT)
-    print("validated region/date lazy loading, concession inventory, and inline JS syntax")
+    print("validated region/date lazy loading, concession inventory, v2 foundation shell, time-series analytics, and inline JS syntax")
     return js_path
 
 
@@ -95,6 +118,7 @@ def main() -> None:
         "python unit tests",
     )
     run(["node", str(ROOT / "tests/test_spatial_proximity.js")], "spatial proximity")
+    run(["node", str(ROOT / "tests/test_v2_frontend_runtime.js")], "v2 frontend runtime")
 
     validate_json_contracts()
     validate_region_geometry()
@@ -102,6 +126,10 @@ def main() -> None:
     run(
         [sys.executable, str(ROOT / "scripts/bootstrap_hotspot_shards.py"), "--check", "--force"],
         "hotspot shard contract",
+    )
+    run(
+        [sys.executable, str(ROOT / "scripts/v2_contracts.py"), "--check"],
+        "v2 provenance & shared filter contracts",
     )
 
     build_dashboard = importlib.util.spec_from_file_location(

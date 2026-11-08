@@ -363,24 +363,44 @@ def validate(
         raise ValueError("validation rejected an empty Indonesia dataset")
 
     same_coverage = previous_meta.get("coverageId") == COVERAGE_ID
-    previous_count = previous_meta.get("count") if same_coverage else None
-    if previous_count and previous_count >= 100 and len(points) < max(100, int(previous_count * MIN_TOTAL_RETENTION)):
+    # Validate comparable periods only (#2): compare rolling-window count against previous rolling-window count
+    # Never compare a 5-day ingestion window against cumulative multi-week historical totals!
+    previous_rolling_count = (
+        previous_meta.get("rollingWindowCount")
+        if same_coverage
+        else None
+    )
+    if previous_rolling_count is None and same_coverage and not previous_meta.get("historyPreserved"):
+        previous_rolling_count = previous_meta.get("count")
+
+    if (
+        previous_rolling_count
+        and previous_rolling_count >= 100
+        and len(points) < max(100, int(previous_rolling_count * MIN_TOTAL_RETENTION))
+    ):
         raise ValueError(
-            f"validation rejected suspicious aggregate count drop: {len(points)} vs previous {previous_count}"
+            f"validation rejected suspicious aggregate count drop: {len(points)} vs previous rolling window {previous_rolling_count}"
         )
 
     missing_sources = sorted(EXPECTED_PLATFORMS - set(source_summary))
     if missing_sources:
         raise ValueError(f"validation rejected missing or empty satellite source(s): {', '.join(missing_sources)}")
 
-    previous_source_counts = previous_meta.get("sourceCounts") if same_coverage else {}
+    previous_source_counts = (
+        (
+            previous_meta.get("rollingWindowSourceCounts")
+            or (previous_meta.get("sourceCounts") if not previous_meta.get("historyPreserved") else {})
+        )
+        if same_coverage
+        else {}
+    )
     if isinstance(previous_source_counts, dict):
         for platform in EXPECTED_PLATFORMS:
-            previous_count = previous_source_counts.get(platform)
+            prev_src_cnt = previous_source_counts.get(platform)
             current_count = source_summary[platform]["count"]
-            if previous_count and current_count < max(10, int(previous_count * MIN_SOURCE_RETENTION)):
+            if prev_src_cnt and current_count < max(10, int(prev_src_cnt * MIN_SOURCE_RETENTION)):
                 raise ValueError(
-                    f"validation rejected suspicious {platform} count drop: {current_count} vs previous {previous_count}"
+                    f"validation rejected suspicious {platform} count drop: {current_count} vs previous rolling {prev_src_cnt}"
                 )
 
     for platform, entry in source_summary.items():
@@ -431,18 +451,306 @@ def attach_regions(points: list[dict], region_geometries: dict[str, dict]) -> li
     return result
 
 
+def merge_points_idempotent(existing_points: list[dict], incoming_points: list[dict]) -> list[dict]:
+    """Deduplicate FIRMS observations by observationId without merging distinct passes (#16).
+
+    Observation identity is (platform, acq_date, acq_time, lat_5dp, lon_5dp).
+    Different satellite passes (S-NPP, NOAA-20, NOAA-21) or different acquisition
+    times remain distinct observations and are never collapsed into one hypothetical fire.
+    """
+    by_id: dict[str, dict] = {}
+    for pt in existing_points or []:
+        if not isinstance(pt, dict):
+            continue
+        oid = pt.get("observationId")
+        if not oid and pt.get("platform") and pt.get("date") and pt.get("lat") is not None and pt.get("lon") is not None:
+            oid = observation_id(
+                str(pt["platform"]),
+                str(pt["date"]),
+                str(pt.get("time", "0000")),
+                float(pt["lat"]),
+                float(pt["lon"]),
+            )
+            pt = dict(pt, observationId=oid)
+        if oid:
+            by_id[str(oid)] = pt
+
+    for pt in incoming_points or []:
+        if not isinstance(pt, dict):
+            continue
+        oid = pt.get("observationId")
+        if not oid and pt.get("platform") and pt.get("date") and pt.get("lat") is not None and pt.get("lon") is not None:
+            oid = observation_id(
+                str(pt["platform"]),
+                str(pt["date"]),
+                str(pt.get("time", "0000")),
+                float(pt["lat"]),
+                float(pt["lon"]),
+            )
+            pt = dict(pt, observationId=oid)
+        if oid:
+            by_id[str(oid)] = pt
+
+    return sorted(
+        by_id.values(),
+        key=lambda point: (
+            str(point.get("date", "")),
+            str(point.get("time", "0000")),
+            str(point.get("platform", "")),
+            float(point.get("lat", 0.0)),
+            float(point.get("lon", 0.0)),
+        ),
+    )
+
+
+def summarize_day_points(
+    day_points: list[dict],
+    is_latest_global_date: bool = False,
+    has_subsequent_date: bool = False,
+    now_utc: datetime | None = None,
+) -> dict:
+    """Compute per-day platform, confidence, timestamp, and completeness metadata (#16, #17, #4)."""
+    by_platform: dict[str, int] = defaultdict(int)
+    by_conf: dict[str, int] = defaultdict(int)
+    acquired_dts: list[datetime] = []
+    for pt in day_points:
+        plat = str(pt.get("platform") or "")
+        if plat:
+            by_platform[plat] += 1
+        conf = str(pt.get("conf") or "nominal")
+        by_conf[conf] += 1
+        dt = detection_datetime(pt)
+        if dt is not None:
+            acquired_dts.append(dt)
+
+    oldest_iso = iso_utc(min(acquired_dts)) if acquired_dts else None
+    newest_iso = iso_utc(max(acquired_dts)) if acquired_dts else None
+    newest_time_hhmm = max((str(pt.get("time", "0000")).zfill(4) for pt in day_points), default="0000")
+
+    ref_now = now_utc or utc_now()
+    date_str = str(day_points[0]["date"]) if day_points else ""
+    completeness = "complete"
+    try:
+        day_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        end_of_day_utc = datetime(
+            day_date.year, day_date.month, day_date.day, 23, 59, 59, tzinfo=timezone.utc
+        )
+        if ref_now < end_of_day_utc:
+            completeness = "partial"
+        elif is_latest_global_date and not has_subsequent_date and newest_time_hhmm < "2300":
+            completeness = "partial"
+    except (ValueError, TypeError):
+        if is_latest_global_date:
+            completeness = "partial"
+
+    return {
+        "byPlatform": dict(sorted(by_platform.items())),
+        "byConfidence": dict(sorted(by_conf.items())),
+        "oldestDetectionUtc": oldest_iso,
+        "newestDetectionUtc": newest_iso,
+        "newestTimeUtc": newest_time_hhmm,
+        "completeness": completeness,
+        "validationStatus": "validated",
+    }
+
+
+def _resolve_durable_region_dir(durable_store_dir: Path, region_id: str) -> Path:
+    nested = durable_store_dir / "hotspots" / region_id
+    if nested.exists():
+        return nested
+    direct = durable_store_dir / region_id
+    if direct.exists():
+        return direct
+    return nested
+
+
+def restore_durable_hotspot_store(
+    shard_root: Path,
+    durable_store_dir: Path | None,
+    regions: list[dict],
+    output_path: Path | None = None,
+    status_path: Path | None = None,
+    national_status_path: Path | None = None,
+) -> dict:
+    """Restore multi-day FIRMS history from a durable store directory before ingestion.
+
+    Idempotently merges any durable per-region daily shards with local shards so
+    ephemeral CI runners recover full multi-day history prior to fetching new NRT
+    window points.
+    """
+    if durable_store_dir is None or not durable_store_dir.exists():
+        return {"restored": False, "restoredDays": 0, "restoredPoints": 0}
+
+    restored_days = 0
+    restored_points = 0
+    for region_meta in regions:
+        rid = region_meta["id"]
+        src_dir = _resolve_durable_region_dir(durable_store_dir, rid)
+        if not src_dir.exists():
+            continue
+        dst_dir = shard_root / rid
+        for src_file in sorted(src_dir.glob("*.json")):
+            src_payload = load_json(src_file)
+            if not isinstance(src_payload, dict):
+                continue
+            src_pts = src_payload.get("points") if isinstance(src_payload.get("points"), list) else []
+            dst_file = dst_dir / src_file.name
+            dst_payload = load_json(dst_file) if dst_file.exists() else {}
+            dst_pts = dst_payload.get("points") if isinstance(dst_payload, dict) and isinstance(dst_payload.get("points"), list) else []
+            merged_pts = merge_points_idempotent(dst_pts, src_pts)
+            meta = dict(src_payload.get("meta") or {})
+            if isinstance(dst_payload, dict) and isinstance(dst_payload.get("meta"), dict):
+                dst_sync = str(dst_payload["meta"].get("lastSuccessfulSync") or "")
+                src_sync = str(meta.get("lastSuccessfulSync") or "")
+                if dst_sync > src_sync:
+                    meta = dict(dst_payload["meta"])
+            meta["count"] = len(merged_pts)
+            write_json_atomic(dst_file, {"meta": meta, "points": merged_pts})
+            restored_days += 1
+            restored_points += len(merged_pts)
+
+    for rel_candidates, target in [
+        (["hotspots/manifest.json", "manifest.json"], shard_root / "manifest.json"),
+        (["hotspots/history.json", "history.json"], shard_root / "history.json"),
+        (["hotspots/status.json", "status.json"], national_status_path),
+        (["firms.json"], output_path),
+        (["firms-status.json"], status_path),
+    ]:
+        if target is None:
+            continue
+        for rel in rel_candidates:
+            candidate = durable_store_dir / rel
+            if not candidate.exists():
+                continue
+            cand_data = load_json(candidate)
+            if not isinstance(cand_data, dict):
+                continue
+            if not target.exists():
+                write_json_atomic(target, cand_data)
+            else:
+                local_data = load_json(target)
+                local_sync = ""
+                cand_sync = ""
+                if isinstance(local_data, dict):
+                    local_sync = str(
+                        (local_data.get("meta") or {}).get("lastSuccessfulSync")
+                        or local_data.get("lastSuccessfulSync")
+                        or ""
+                    )
+                cand_sync = str(
+                    (cand_data.get("meta") or {}).get("lastSuccessfulSync")
+                    or cand_data.get("lastSuccessfulSync")
+                    or ""
+                )
+                if cand_sync > local_sync:
+                    write_json_atomic(target, cand_data)
+            break
+
+    return {
+        "restored": restored_days > 0,
+        "restoredDays": restored_days,
+        "restoredPoints": restored_points,
+    }
+
+
+def persist_durable_hotspot_store(
+    shard_root: Path,
+    durable_store_dir: Path | None,
+    regions: list[dict],
+    output_path: Path | None = None,
+    status_path: Path | None = None,
+    national_status_path: Path | None = None,
+) -> dict:
+    """Persist merged multi-day FIRMS shards and metadata back to durable storage."""
+    if durable_store_dir is None:
+        return {"persisted": False, "persistedDays": 0, "persistedPoints": 0}
+
+    hotspots_base = (
+        durable_store_dir
+        if durable_store_dir.name == "hotspots"
+        else durable_store_dir / "hotspots"
+    )
+    persisted_days = 0
+    persisted_points = 0
+    for region_meta in regions:
+        rid = region_meta["id"]
+        src_dir = shard_root / rid
+        if not src_dir.exists():
+            continue
+        dst_dir = hotspots_base / rid
+        for src_file in sorted(src_dir.glob("*.json")):
+            src_payload = load_json(src_file)
+            if not isinstance(src_payload, dict):
+                continue
+            src_pts = src_payload.get("points") if isinstance(src_payload.get("points"), list) else []
+            dst_file = dst_dir / src_file.name
+            dst_payload = load_json(dst_file) if dst_file.exists() else {}
+            dst_pts = dst_payload.get("points") if isinstance(dst_payload, dict) and isinstance(dst_payload.get("points"), list) else []
+            merged_pts = merge_points_idempotent(dst_pts, src_pts)
+            meta = dict(src_payload.get("meta") or {})
+            meta["count"] = len(merged_pts)
+            write_json_atomic(dst_file, {"meta": meta, "points": merged_pts})
+            persisted_days += 1
+            persisted_points += len(merged_pts)
+
+    for src, target in [
+        (shard_root / "manifest.json", hotspots_base / "manifest.json"),
+        (shard_root / "history.json", hotspots_base / "history.json"),
+        (national_status_path, hotspots_base / "status.json"),
+        (output_path, durable_store_dir / "firms.json"),
+        (status_path, durable_store_dir / "firms-status.json"),
+    ]:
+        if src is not None and src.exists():
+            data = load_json(src)
+            if isinstance(data, dict):
+                write_json_atomic(target, data)
+
+    return {
+        "persisted": persisted_days > 0,
+        "persistedDays": persisted_days,
+        "persistedPoints": persisted_points,
+    }
+
+
 def write_hotspot_shards(
     points: list[dict],
     shard_root: Path,
     regions: list[dict],
     meta: dict,
+    preserve_existing: bool = True,
+    durable_store_dir: Path | None = None,
 ) -> dict:
+    if preserve_existing and durable_store_dir is not None:
+        restore_durable_hotspot_store(shard_root, durable_store_dir, regions)
+
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+
+    if preserve_existing and shard_root.exists():
+        for region_meta in regions:
+            rid = region_meta["id"]
+            region_dir = shard_root / rid
+            if not region_dir.exists():
+                continue
+            for existing_file in sorted(region_dir.glob("*.json")):
+                existing_payload = load_json(existing_file)
+                existing_pts = existing_payload.get("points") if isinstance(existing_payload, dict) else []
+                if isinstance(existing_pts, list):
+                    for ept in existing_pts:
+                        if isinstance(ept, dict) and ept.get("date"):
+                            ept_copy = dict(ept)
+                            ept_copy.setdefault("region", rid)
+                            grouped[(rid, str(ept_copy["date"]))].append(ept_copy)
+
     for point in points:
         grouped[(point["region"], point["date"])].append(point)
 
+    all_dates_global = sorted({date for (_, date) in grouped})
+    latest_global_date = all_dates_global[-1] if all_dates_global else None
+
     active_paths: set[Path] = set()
     region_manifest: dict[str, dict] = {}
+    total_all_points = 0
+    all_merged_points: list[dict] = []
 
     for region_meta in regions:
         region_id = region_meta["id"]
@@ -454,15 +762,15 @@ def write_hotspot_shards(
             (date for (region, date) in grouped if region == region_id),
             reverse=True,
         )
-        for date in dates:
-            day_points = sorted(
-                grouped[(region_id, date)],
-                key=lambda point: (
-                    point["time"],
-                    point["platform"],
-                    point["lat"],
-                    point["lon"],
-                ),
+        for idx_d, date in enumerate(dates):
+            day_points = merge_points_idempotent([], grouped[(region_id, date)])
+            all_merged_points.extend(day_points)
+            is_latest = (date == latest_global_date)
+            has_subsequent = (idx_d > 0)
+            day_summary = summarize_day_points(
+                day_points,
+                is_latest_global_date=is_latest,
+                has_subsequent_date=has_subsequent,
             )
             path = region_dir / f"{date}.json"
             active_paths.add(path)
@@ -473,6 +781,12 @@ def write_hotspot_shards(
                     "date": date,
                     "count": len(day_points),
                     "lastSuccessfulSync": meta["lastSuccessfulSync"],
+                    "oldestDetectionUtc": day_summary["oldestDetectionUtc"],
+                    "newestDetectionUtc": day_summary["newestDetectionUtc"],
+                    "byPlatform": day_summary["byPlatform"],
+                    "byConfidence": day_summary["byConfidence"],
+                    "completeness": day_summary["completeness"],
+                    "validationStatus": day_summary["validationStatus"],
                     "pipelineVersion": PIPELINE_VERSION,
                 },
                 "points": day_points,
@@ -483,6 +797,10 @@ def write_hotspot_shards(
                     "date": date,
                     "url": f"data/hotspots/{region_id}/{date}.json",
                     "count": len(day_points),
+                    "byPlatform": day_summary["byPlatform"],
+                    "byConfidence": day_summary["byConfidence"],
+                    "newestTimeUtc": day_summary["newestTimeUtc"],
+                    "completeness": day_summary["completeness"],
                 }
             )
             total += len(day_points)
@@ -492,25 +810,44 @@ def write_hotspot_shards(
             "count": total,
             "days": day_entries,
         }
+        total_all_points += total
 
-    if shard_root.exists():
+    if not preserve_existing and shard_root.exists():
         for path in shard_root.glob("*/*.json"):
             if path not in active_paths:
                 path.unlink()
+
+    all_acquired = [
+        dt for pt in all_merged_points if (dt := detection_datetime(pt)) is not None
+    ]
+    newest_utc = iso_utc(max(all_acquired)) if all_acquired else meta.get("newestDetectionUtc")
+    oldest_utc = iso_utc(min(all_acquired)) if all_acquired else meta.get("oldestDetectionUtc")
+
+    rolling_source_summary = source_observation_summary(points)
+    rolling_source_counts = {
+        platform: entry["count"] for platform, entry in rolling_source_summary.items()
+    }
 
     manifest = {
         "meta": {
             "coverageId": COVERAGE_ID,
             "lastSuccessfulSync": meta["lastSuccessfulSync"],
-            "newestDetectionUtc": meta["newestDetectionUtc"],
-            "oldestDetectionUtc": meta["oldestDetectionUtc"],
+            "newestDetectionUtc": newest_utc,
+            "oldestDetectionUtc": oldest_utc,
             "platforms": meta["platforms"],
-            "count": len(points),
+            "rollingWindowCount": len(points),
+            "rollingWindowSourceCounts": rolling_source_counts,
+            "historicalCount": total_all_points,
+            "count": total_all_points,
             "pipelineVersion": PIPELINE_VERSION,
+            "historyPreserved": bool(preserve_existing),
+            "durableStoreActive": durable_store_dir is not None,
         },
         "regions": region_manifest,
     }
     write_json_atomic(shard_root / "manifest.json", manifest)
+    if preserve_existing and durable_store_dir is not None:
+        persist_durable_hotspot_store(shard_root, durable_store_dir, regions)
     return manifest
 
 
@@ -588,6 +925,23 @@ def run(args: argparse.Namespace) -> int:
     shard_root = Path(args.shard_root)
     national_status_path = Path(args.national_status)
     archive_dir = Path(args.archive_dir) if args.archive_dir else None
+    durable_arg = getattr(args, "durable_store_dir", None) or os.environ.get("FIRMS_HISTORY_STORE_DIR", "").strip()
+    durable_store_dir = Path(durable_arg) if durable_arg else None
+
+    try:
+        regions_for_restore = load_regions(regions_path) if regions_path.exists() else [{"id": rid, "label": rid} for rid in REGION_ORDER]
+    except Exception:
+        regions_for_restore = [{"id": rid, "label": rid} for rid in REGION_ORDER]
+
+    if durable_store_dir is not None:
+        restore_durable_hotspot_store(
+            shard_root,
+            durable_store_dir,
+            regions_for_restore,
+            output_path=output_path,
+            status_path=status_path,
+            national_status_path=national_status_path,
+        )
 
     legacy_previous_payload = load_json(output_path)
     legacy_previous_meta = (
@@ -682,7 +1036,14 @@ def run(args: argparse.Namespace) -> int:
 
         # Publish the national sharded contract first. The current frontend does
         # not read it yet, so this can roll out independently from the UI.
-        write_hotspot_shards(points, shard_root, regions, meta)
+        write_hotspot_shards(
+            points,
+            shard_root,
+            regions,
+            meta,
+            preserve_existing=True,
+            durable_store_dir=durable_store_dir,
+        )
         write_json_atomic(national_status_path, healthy_status_payload(meta))
 
         if archive_dir is not None:
@@ -706,6 +1067,16 @@ def run(args: argparse.Namespace) -> int:
         legacy_payload = {"meta": legacy_meta, "points": legacy_points}
         write_json_atomic(output_path, legacy_payload)
         write_json_atomic(status_path, healthy_status_payload(legacy_meta, "kalimantan"))
+
+        if durable_store_dir is not None:
+            persist_durable_hotspot_store(
+                shard_root,
+                durable_store_dir,
+                regions,
+                output_path=output_path,
+                status_path=status_path,
+                national_status_path=national_status_path,
+            )
 
         region_counts = {
             region["id"]: sum(
@@ -761,6 +1132,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--regions", default=str(DEFAULT_REGIONS))
     parser.add_argument("--shard-root", default=str(DEFAULT_SHARD_ROOT))
     parser.add_argument("--national-status", default=str(DEFAULT_NATIONAL_STATUS))
+    parser.add_argument(
+        "--durable-store-dir",
+        default=None,
+        help="Durable history directory (or FIRMS_HISTORY_STORE_DIR) for persisting and restoring multi-day FIRMS shards across CI runs.",
+    )
     parser.add_argument(
         "--archive-dir",
         default=None,

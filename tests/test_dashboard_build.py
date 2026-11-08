@@ -29,15 +29,33 @@ inventory_patch = load_module(
     "patch_concession_inventory_dashboard",
     ROOT / "scripts" / "patch_concession_inventory_dashboard.py",
 )
+v2_foundation_patch = load_module(
+    "patch_v2_foundation_dashboard",
+    ROOT / "scripts" / "patch_v2_foundation_dashboard.py",
+)
+v2_concessions_map_patch = load_module(
+    "patch_v2_concessions_map_dashboard",
+    ROOT / "scripts" / "patch_v2_concessions_map_dashboard.py",
+)
+v2_analytics_ts_patch = load_module(
+    "patch_v2_analytics_timeseries_dashboard",
+    ROOT / "scripts" / "patch_v2_analytics_timeseries_dashboard.py",
+)
 
 
 class DashboardBuildTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "index.html").read_text(encoding="utf-8")
-        cls.html = inventory_patch.build_patched_index(
-            region_patch.build_patched_index(
-                land_patch.build_patched_index(source)
+        cls.html = v2_analytics_ts_patch.build_patched_index(
+            v2_concessions_map_patch.build_patched_index(
+                v2_foundation_patch.build_patched_index(
+                    inventory_patch.build_patched_index(
+                        region_patch.build_patched_index(
+                            land_patch.build_patched_index(source)
+                        )
+                    )
+                )
             )
         )
 
@@ -51,6 +69,81 @@ class DashboardBuildTests(unittest.TestCase):
         self.assertNotIn('loadJson("data/boundaries.geojson")', self.html)
         self.assertIn('id="tog-inventory"', self.html)
         self.assertIn("function refreshConcessionInventoryLayer()", self.html)
+
+    def test_v2_foundation_shell_and_shared_filters_present(self):
+        for marker in (
+            'id="primary-nav"',
+            'id="nav-overview"',
+            'id="nav-map"',
+            'id="nav-concessions"',
+            'id="nav-data"',
+            'id="shared-filter-bar"',
+            'id="f-region-shared"',
+            'id="f-prov-shared"',
+            'id="f-kab"',
+            'id="f-window"',
+            'id="f-date-select"',
+            'id="kpi-card-hotspots"',
+            'id="kpi-card-concessions"',
+            'id="kpi-card-dossiers"',
+            'id="kpi-card-environmental"',
+            'id="overview-trend-card"',
+            'id="overview-regional-card"',
+            'id="data-view-panel"',
+            'id="provenance-drawer"',
+            'data/admin-index.json',
+            'data/sources-manifest.json',
+            'data/admin-boundaries.geojson',
+            'function evaluateFirmsFreshnessRuntime(nowMs)',
+            'function pointMatchesProvince(p, provName)',
+            'function pointMatchesKabupaten(p, kabName, activeProvName)',
+            'function setView(viewName, skipUrlSync)',
+            'function syncUrlQuery()',
+            'function openProvenanceDrawer(metricId)',
+            'CURATED · INVESTIGATIVE',
+            'DATA UNAVAILABLE',
+        ):
+            self.assertIn(marker, self.html)
+
+    def test_v2_wave2_concessions_and_map_controls_present(self):
+        for marker in (
+            'id="concession-explorer-controls"',
+            'id="f-concession-source"',
+            'id="f-concession-sort"',
+            'id="concession-count-breakdown"',
+            'id="concession-pagination"',
+            'id="btn-page-prev"',
+            'id="btn-page-next"',
+            'id="map-layer-control"',
+            'id="tog-map-firms"',
+            'id="tog-map-burned-area"',
+            'id="tog-map-concessions"',
+            'id="tog-map-admin"',
+            'id="burned-area-layer-warning"',
+            'id="focused-concession-bar"',
+            'function buildUnifiedConcessionViewModels(',
+            'function ensureConcessionGeometryForRow(',
+            '/inventory/index.json',
+            'function queryUnifiedConcessionViewModels(',
+            'function showUnifiedConcessionDetail(',
+            'Investigative dossier available',
+        ):
+            self.assertIn(marker, self.html)
+
+    def test_v2_wave3_analytics_and_timeseries_controls_present(self):
+        for marker in (
+            'id="ts-controls-bar"',
+            'id="ts-metric-select"',
+            'id="ts-agg-select"',
+            'id="ts-tz-select"',
+            'id="ts-delta-strip"',
+            'id="ts-chart-tooltip"',
+            'data/hotspots/history.json',
+            'function areDatesConsecutiveJs(',
+            'function buildTypedTimeSeriesForView(',
+            'function renderReusableTimeSeriesChart(',
+        ):
+            self.assertIn(marker, self.html)
 
     def test_patched_inline_javascript_parses(self):
         scripts = re.findall(r"<script>(.*?)</script>", self.html, flags=re.DOTALL)
