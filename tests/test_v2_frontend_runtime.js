@@ -171,17 +171,17 @@ assert.strictEqual(allKalMapPts.length, 12442, "unfiltered Kalimantan 2026-08-27
 context.state.prov = "Kalimantan Timur";
 const kaltimMapPts = context.firmsForView();
 assert.ok(kaltimMapPts.length > 0 && kaltimMapPts.length < allKalMapPts.length, "province filter must spatially subset FIRMS map points");
-assert.strictEqual(kaltimMapPts.length, 667, "expected 667 FIRMS points inside Kalimantan Timur on 2026-08-27");
+assert.strictEqual(kaltimMapPts.length, 1078, "expected 1078 FIRMS points inside Kalimantan Timur on 2026-08-27");
 
 context.renderOverviewKpisAndWidgets();
 assert.strictEqual(
   getEl("kpi-hotspots-val").textContent,
-  (1643).toLocaleString("id-ID") + " deteksi",
-  "filtering by Kalimantan Timur must synchronize KPI to Kalimantan Timur 4-day total (1.643)"
+  (3050).toLocaleString("id-ID") + " deteksi",
+  "filtering by Kalimantan Timur must synchronize KPI to Kalimantan Timur 4-day total (3.050)"
 );
 assert.ok(
-  getEl("kpi-hotspots-meta").textContent.includes("667"),
-  "KPI meta must show 667 detections on active date 2026-08-27 for Kalimantan Timur"
+  getEl("kpi-hotspots-meta").textContent.includes("1.078") || getEl("kpi-hotspots-meta").textContent.includes("1078"),
+  "KPI meta must show 1078 detections on active date 2026-08-27 for Kalimantan Timur"
 );
 assert.ok(
   getEl("kpi-dossiers-val").textContent.includes("3 dossier"),
@@ -192,12 +192,12 @@ assert.ok(
 context.state.kab = "Kutai Timur";
 const kutimMapPts = context.firmsForView();
 assert.ok(kutimMapPts.length > 0 && kutimMapPts.length < kaltimMapPts.length, "kabupaten filter must further subset province FIRMS points");
-assert.strictEqual(kutimMapPts.length, 326, "expected 326 FIRMS points inside Kutai Timur on 2026-08-27");
+assert.strictEqual(kutimMapPts.length, 296, "expected 296 FIRMS points inside Kutai Timur on 2026-08-27");
 context.renderOverviewKpisAndWidgets();
 assert.strictEqual(
   getEl("kpi-hotspots-val").textContent,
-  (602).toLocaleString("id-ID") + " deteksi",
-  "filtering by Kutai Timur must synchronize KPI to Kutai Timur 4-day total (602)"
+  (563).toLocaleString("id-ID") + " deteksi",
+  "filtering by Kutai Timur must synchronize KPI to Kutai Timur 4-day total (563)"
 );
 
 // Hierarchy mismatch (Kalimantan Barat + Kutai Timur) -> 0 map points
@@ -332,15 +332,42 @@ assert.ok(chartWrap.innerHTML.includes("PARTIAL DAY"), "expected partial-day mar
 // Province & kabupaten time-series support (Fix #3)
 context.state.region = "kalimantan";
 context.state.prov = "Kalimantan Timur";
+context.state.kab = "";
 const tsProv = context.buildTypedTimeSeriesForView("firms-hotspots");
 assert.strictEqual(tsProv.coverage.completeness, "partial");
 assert.strictEqual(tsProv.points.length, 4);
-assert.strictEqual(tsProv.points.reduce((acc, p) => acc + (p.value || 0), 0), 1643);
+assert.strictEqual(tsProv.points.reduce((acc, p) => acc + (p.value || 0), 0), 3050);
 
 context.state.kab = "Kutai Timur";
 const tsKab = context.buildTypedTimeSeriesForView("firms-hotspots");
 assert.strictEqual(tsKab.points.length, 4);
-assert.strictEqual(tsKab.points.reduce((acc, p) => acc + (p.value || 0), 0), 602);
+assert.strictEqual(tsKab.points.reduce((acc, p) => acc + (p.value || 0), 0), 563);
+
+// Combined platform and confidence filter synergy (Issue #5)
+context.state.region = "kalimantan";
+context.state.prov = "Kalimantan Timur";
+context.state.kab = "";
+context.state.platform = "NOAA-20";
+context.state.conf = "nominal";
+const combinedMapPts = context.firmsForView();
+const combinedKpiCount = context.scopeHotspotCountForDate(context.currentDate());
+assert.strictEqual(
+  combinedMapPts.length,
+  combinedKpiCount,
+  "map points and scopeHotspotCountForDate must match when both platform and confidence filters are active"
+);
+assert.ok(
+  combinedMapPts.length > 0 && combinedMapPts.length < 1078,
+  "combined NOAA-20 + nominal filter must strictly subset total detections"
+);
+const combinedHistoricalKpi = context.scopeHotspotCountForDate("2026-08-26");
+assert.strictEqual(
+  combinedHistoricalKpi,
+  235,
+  "historical date scopeHotspotCountForDate must match byPlatformConfidence[NOAA-20|nominal]"
+);
+context.state.platform = "";
+context.state.conf = "";
 
 // Non-consecutive date gap guard in JS (Fix #6)
 assert.strictEqual(context.areDatesConsecutiveJs("2026-08-25", "2026-08-26"), true);

@@ -363,24 +363,44 @@ def validate(
         raise ValueError("validation rejected an empty Indonesia dataset")
 
     same_coverage = previous_meta.get("coverageId") == COVERAGE_ID
-    previous_count = previous_meta.get("count") if same_coverage else None
-    if previous_count and previous_count >= 100 and len(points) < max(100, int(previous_count * MIN_TOTAL_RETENTION)):
+    # Validate comparable periods only (#2): compare rolling-window count against previous rolling-window count
+    # Never compare a 5-day ingestion window against cumulative multi-week historical totals!
+    previous_rolling_count = (
+        previous_meta.get("rollingWindowCount")
+        if same_coverage
+        else None
+    )
+    if previous_rolling_count is None and same_coverage and not previous_meta.get("historyPreserved"):
+        previous_rolling_count = previous_meta.get("count")
+
+    if (
+        previous_rolling_count
+        and previous_rolling_count >= 100
+        and len(points) < max(100, int(previous_rolling_count * MIN_TOTAL_RETENTION))
+    ):
         raise ValueError(
-            f"validation rejected suspicious aggregate count drop: {len(points)} vs previous {previous_count}"
+            f"validation rejected suspicious aggregate count drop: {len(points)} vs previous rolling window {previous_rolling_count}"
         )
 
     missing_sources = sorted(EXPECTED_PLATFORMS - set(source_summary))
     if missing_sources:
         raise ValueError(f"validation rejected missing or empty satellite source(s): {', '.join(missing_sources)}")
 
-    previous_source_counts = previous_meta.get("sourceCounts") if same_coverage else {}
+    previous_source_counts = (
+        (
+            previous_meta.get("rollingWindowSourceCounts")
+            or (previous_meta.get("sourceCounts") if not previous_meta.get("historyPreserved") else {})
+        )
+        if same_coverage
+        else {}
+    )
     if isinstance(previous_source_counts, dict):
         for platform in EXPECTED_PLATFORMS:
-            previous_count = previous_source_counts.get(platform)
+            prev_src_cnt = previous_source_counts.get(platform)
             current_count = source_summary[platform]["count"]
-            if previous_count and current_count < max(10, int(previous_count * MIN_SOURCE_RETENTION)):
+            if prev_src_cnt and current_count < max(10, int(prev_src_cnt * MIN_SOURCE_RETENTION)):
                 raise ValueError(
-                    f"validation rejected suspicious {platform} count drop: {current_count} vs previous {previous_count}"
+                    f"validation rejected suspicious {platform} count drop: {current_count} vs previous rolling {prev_src_cnt}"
                 )
 
     for platform, entry in source_summary.items():
@@ -483,8 +503,13 @@ def merge_points_idempotent(existing_points: list[dict], incoming_points: list[d
     )
 
 
-def summarize_day_points(day_points: list[dict], is_latest_global_date: bool = False) -> dict:
-    """Compute per-day platform, confidence, timestamp, and completeness metadata (#16, #17)."""
+def summarize_day_points(
+    day_points: list[dict],
+    is_latest_global_date: bool = False,
+    has_subsequent_date: bool = False,
+    now_utc: datetime | None = None,
+) -> dict:
+    """Compute per-day platform, confidence, timestamp, and completeness metadata (#16, #17, #4)."""
     by_platform: dict[str, int] = defaultdict(int)
     by_conf: dict[str, int] = defaultdict(int)
     acquired_dts: list[datetime] = []
@@ -501,9 +526,22 @@ def summarize_day_points(day_points: list[dict], is_latest_global_date: bool = F
     oldest_iso = iso_utc(min(acquired_dts)) if acquired_dts else None
     newest_iso = iso_utc(max(acquired_dts)) if acquired_dts else None
     newest_time_hhmm = max((str(pt.get("time", "0000")).zfill(4) for pt in day_points), default="0000")
+
+    ref_now = now_utc or utc_now()
+    date_str = str(day_points[0]["date"]) if day_points else ""
     completeness = "complete"
-    if is_latest_global_date and newest_time_hhmm < "2100":
-        completeness = "partial"
+    try:
+        day_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        end_of_day_utc = datetime(
+            day_date.year, day_date.month, day_date.day, 23, 59, 59, tzinfo=timezone.utc
+        )
+        if ref_now < end_of_day_utc:
+            completeness = "partial"
+        elif is_latest_global_date and not has_subsequent_date and newest_time_hhmm < "2300":
+            completeness = "partial"
+    except (ValueError, TypeError):
+        if is_latest_global_date:
+            completeness = "partial"
 
     return {
         "byPlatform": dict(sorted(by_platform.items())),
@@ -724,11 +762,15 @@ def write_hotspot_shards(
             (date for (region, date) in grouped if region == region_id),
             reverse=True,
         )
-        for date in dates:
+        for idx_d, date in enumerate(dates):
             day_points = merge_points_idempotent([], grouped[(region_id, date)])
             all_merged_points.extend(day_points)
+            is_latest = (date == latest_global_date)
+            has_subsequent = (idx_d > 0)
             day_summary = summarize_day_points(
-                day_points, is_latest_global_date=(date == latest_global_date)
+                day_points,
+                is_latest_global_date=is_latest,
+                has_subsequent_date=has_subsequent,
             )
             path = region_dir / f"{date}.json"
             active_paths.add(path)
@@ -781,6 +823,11 @@ def write_hotspot_shards(
     newest_utc = iso_utc(max(all_acquired)) if all_acquired else meta.get("newestDetectionUtc")
     oldest_utc = iso_utc(min(all_acquired)) if all_acquired else meta.get("oldestDetectionUtc")
 
+    rolling_source_summary = source_observation_summary(points)
+    rolling_source_counts = {
+        platform: entry["count"] for platform, entry in rolling_source_summary.items()
+    }
+
     manifest = {
         "meta": {
             "coverageId": COVERAGE_ID,
@@ -788,6 +835,9 @@ def write_hotspot_shards(
             "newestDetectionUtc": newest_utc,
             "oldestDetectionUtc": oldest_utc,
             "platforms": meta["platforms"],
+            "rollingWindowCount": len(points),
+            "rollingWindowSourceCounts": rolling_source_counts,
+            "historicalCount": total_all_points,
             "count": total_all_points,
             "pipelineVersion": PIPELINE_VERSION,
             "historyPreserved": bool(preserve_existing),

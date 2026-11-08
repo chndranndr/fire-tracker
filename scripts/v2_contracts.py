@@ -422,112 +422,43 @@ def parse_record_kabupaten(props: dict[str, Any] | None) -> list[str]:
 
 
 def build_authoritative_kabupaten_registry(root: Path = ROOT) -> dict[str, dict[str, Any]]:
-    """Build or return the authoritative BPS 4-digit kabupaten/kota registry (#4).
+    """Build or return the authoritative BPS 4-digit kabupaten/kota registry (#1, #4).
 
     Guarantees that every kabupaten/kota maps deterministically to exactly one
-    authoritative parent province and 4-digit BPS code (`bpsCode[:2]` == province 2-digit BPS code),
+    authoritative parent province and official 4-digit BPS code (`bpsCode[:2]` == province 2-digit BPS code),
     eliminating Cartesian-product cross-assignments on multi-province concessions.
+    Populated directly from authoritative administrative boundaries and codes.
     """
     global _CACHED_KABUPATEN_REGISTRY
     if _CACHED_KABUPATEN_REGISTRY is not None and root == ROOT:
         return _CACHED_KABUPATEN_REGISTRY
 
-    regions_payload = read_json(root / "data" / "regions.json", {"regions": []})
-    regions_list = regions_payload.get("regions") or []
-    prov_to_region: dict[str, str] = {}
-    for r in regions_list:
-        rid = str(r.get("id") or "")
-        for p in r.get("provinces") or []:
-            prov_to_region[p] = rid
-
-    kab_to_prov: dict[str, str] = dict(AUTHORITATIVE_KABUPATEN_PROVINCE_OVERRIDES)
-    kab_coord_samples: dict[str, list[tuple[float, float]]] = defaultdict(list)
-
-    for r in regions_list:
-        rid = r["id"]
-        allowed_provs = set(r.get("provinces") or [])
-        inv_manifest = read_json(
-            root / "data" / "concessions" / rid / "inventory" / "manifest.json", {}
-        )
-        for layer in inv_manifest.get("layers") or []:
-            rel_url = layer.get("url")
-            if not rel_url:
-                continue
-            fc = read_json(root / rel_url, {"features": []})
-            for feat in fc.get("features") or []:
-                props = feat.get("properties") or {}
-                raw_provs: list[str] = []
-                if props.get("province"):
-                    for part in re.split(r"[,;/]+", str(props["province"])):
-                        np = normalize_province_token(part)
-                        if np and np in allowed_provs and np not in raw_provs:
-                            raw_provs.append(np)
-                kabs = parse_record_kabupaten(props)
-                for k in kabs:
-                    if k not in kab_to_prov and len(raw_provs) == 1:
-                        kab_to_prov[k] = raw_provs[0]
-
-                if len(kabs) == 1:
-                    geom = feat.get("geometry")
-                    if isinstance(geom, dict) and geom.get("coordinates"):
-                        lons: list[float] = []
-                        lats: list[float] = []
-
-                        def _walk(node: Any) -> None:
-                            if isinstance(node, (list, tuple)):
-                                if (
-                                    len(node) >= 2
-                                    and isinstance(node[0], (int, float))
-                                    and isinstance(node[1], (int, float))
-                                ):
-                                    lons.append(float(node[0]))
-                                    lats.append(float(node[1]))
-                                else:
-                                    for ch in node:
-                                        _walk(ch)
-
-                        _walk(geom["coordinates"])
-                        if lons and lats:
-                            kab_coord_samples[kabs[0]].append(
-                                ((min(lons) + max(lons)) / 2.0, (min(lats) + max(lats)) / 2.0)
-                            )
-
-    by_prov: dict[str, list[str]] = defaultdict(list)
-    for k, p in sorted(kab_to_prov.items()):
-        by_prov[p].append(k)
-
+    admin_fc = build_admin_boundaries_geojson(root)
     registry: dict[str, dict[str, Any]] = {}
-    for p, klist in sorted(by_prov.items()):
-        pcode = PROVINCE_TO_BPS_CODE.get(p, "00")
-        reg_id = prov_to_region.get(p, "indonesia")
-        p_seed = PROVINCE_SEED_CENTROIDS.get(p, (114.0, -2.0))
-        reg_idx = 1
-        city_idx = 71
-        k_sorted = sorted(set(klist))
-        for idx_k, k in enumerate(k_sorted):
-            if k.startswith("Kota "):
-                bps_code = f"{pcode}{city_idx:02d}"
-                city_idx += 1
-            else:
-                bps_code = f"{pcode}{reg_idx:02d}"
-                reg_idx += 1
-            samples = kab_coord_samples.get(k) or []
-            if samples:
-                lon_c = round(sum(s[0] for s in samples) / len(samples), 4)
-                lat_c = round(sum(s[1] for s in samples) / len(samples), 4)
-            else:
-                # Deterministic offset around province centroid when no single-kab polygon exists
-                angle_step = (idx_k + 1) * 0.12
-                lon_c = round(p_seed[0] + ((idx_k % 5) - 2) * 0.15, 4)
-                lat_c = round(p_seed[1] + ((idx_k // 5) - 1) * 0.15 + (angle_step * 0.01), 4)
-            registry[k] = {
-                "kabupaten": k,
-                "province": p,
-                "bpsCode": bps_code,
-                "provinceBpsCode": pcode,
-                "region": reg_id,
-                "seedLonLat": [lon_c, lat_c],
-            }
+    for feat in admin_fc.get("features") or []:
+        props = feat.get("properties") or {}
+        if props.get("level") == "kabupaten":
+            k = props.get("kabupaten") or props.get("name")
+            p = props.get("province")
+            bps_code = str(props.get("bpsCode") or "")
+            pcode = str(props.get("provinceBpsCode") or bps_code[:2])
+            region = str(props.get("region") or "")
+            cent = props.get("centroid") or [0.0, 0.0]
+            # Centroid in admin boundaries properties is [lat, lon]; seedLonLat is [lon, lat]
+            seed_lon_lat = (
+                [round(float(cent[1]), 4), round(float(cent[0]), 4)]
+                if len(cent) >= 2
+                else [114.0, -2.0]
+            )
+            if k and p:
+                registry[k] = {
+                    "kabupaten": k,
+                    "province": p,
+                    "bpsCode": bps_code,
+                    "provinceBpsCode": pcode,
+                    "region": region,
+                    "seedLonLat": seed_lon_lat,
+                }
 
     if root == ROOT:
         _CACHED_KABUPATEN_REGISTRY = registry
@@ -1205,304 +1136,35 @@ def _signed_ring_area(ring: list[tuple[float, float]]) -> float:
     return 0.5 * acc
 
 
-def _pt_in_tri(
-    p: tuple[float, float],
-    a: tuple[float, float],
-    b: tuple[float, float],
-    c: tuple[float, float],
-) -> bool:
-    def _sign(p1: tuple[float, float], p2: tuple[float, float], p3: tuple[float, float]) -> float:
-        return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
-
-    d1 = _sign(p, a, b)
-    d2 = _sign(p, b, c)
-    d3 = _sign(p, c, a)
-    has_neg = (d1 < -1e-12) or (d2 < -1e-12) or (d3 < -1e-12)
-    has_pos = (d1 > 1e-12) or (d2 > 1e-12) or (d3 > 1e-12)
-    return not (has_neg and has_pos)
-
-
-def _ear_clip_triangulate(ring_coords: list[list[float]]) -> list[list[tuple[float, float]]]:
-    pts: list[tuple[float, float]] = [(float(p[0]), float(p[1])) for p in ring_coords[:-1]]
-    clean: list[tuple[float, float]] = []
-    for p in pts:
-        if not clean or abs(p[0] - clean[-1][0]) > 1e-9 or abs(p[1] - clean[-1][1]) > 1e-9:
-            clean.append(p)
-    if len(clean) >= 2 and abs(clean[0][0] - clean[-1][0]) < 1e-9 and abs(clean[0][1] - clean[-1][1]) < 1e-9:
-        clean.pop()
-    if len(clean) < 3:
-        return []
-    if _signed_ring_area(clean) < 0:
-        clean.reverse()
-    tris: list[list[tuple[float, float]]] = []
-    verts = list(clean)
-    guard = 0
-    while len(verts) > 3 and guard < 10000:
-        guard += 1
-        ear_found = False
-        n = len(verts)
-        for i in range(n):
-            prev_pt = verts[(i - 1) % n]
-            curr_pt = verts[i]
-            next_pt = verts[(i + 1) % n]
-            cross = (curr_pt[0] - prev_pt[0]) * (next_pt[1] - curr_pt[1]) - (curr_pt[1] - prev_pt[1]) * (next_pt[0] - curr_pt[0])
-            if cross <= 1e-12:
-                continue
-            if any(
-                verts[j] not in (prev_pt, curr_pt, next_pt) and _pt_in_tri(verts[j], prev_pt, curr_pt, next_pt)
-                for j in range(n)
-            ):
-                continue
-            tris.append([prev_pt, curr_pt, next_pt])
-            verts.pop(i)
-            ear_found = True
-            break
-        if not ear_found:
-            for i in range(len(verts)):
-                prev_pt = verts[(i - 1) % len(verts)]
-                curr_pt = verts[i]
-                next_pt = verts[(i + 1) % len(verts)]
-                tris.append([prev_pt, curr_pt, next_pt])
-                verts.pop(i)
-                break
-    if len(verts) == 3:
-        tris.append(verts)
-    return tris
-
-
-def _clip_poly_halfplane(
-    poly: list[tuple[float, float]], a: float, b: float, c: float
-) -> list[tuple[float, float]]:
-    if not poly:
-        return []
-    out: list[tuple[float, float]] = []
-    n = len(poly)
-    for i in range(n):
-        p1 = poly[i]
-        p2 = poly[(i + 1) % n]
-        v1 = a * p1[0] + b * p1[1] - c
-        v2 = a * p2[0] + b * p2[1] - c
-        in1 = v1 <= 1e-12
-        in2 = v2 <= 1e-12
-        if in1 and in2:
-            out.append(p2)
-        elif in1 and not in2:
-            denom = v1 - v2
-            t = v1 / denom if abs(denom) > 1e-15 else 0.0
-            out.append((p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1])))
-        elif not in1 and in2:
-            denom = v1 - v2
-            t = v1 / denom if abs(denom) > 1e-15 else 0.0
-            out.append((p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1])))
-            out.append(p2)
-    return out
-
-
-def _dissolve_clipped_polygons(
-    polys: list[list[tuple[float, float]]], decimals: int = 4
-) -> list[list[list[float]]]:
-    def _r(pt: tuple[float, float]) -> tuple[float, float]:
-        return (round(pt[0], decimals), round(pt[1], decimals))
-
-    edge_count: dict[tuple[tuple[float, float], tuple[float, float]], int] = defaultdict(int)
-    for poly in polys:
-        if len(poly) < 3:
-            continue
-        if _signed_ring_area(poly) < 0:
-            poly = list(reversed(poly))
-        rpts = [_r(p) for p in poly]
-        for i in range(len(rpts)):
-            u, v = rpts[i], rpts[(i + 1) % len(rpts)]
-            if u != v:
-                edge_count[(u, v)] += 1
-
-    adj: dict[tuple[float, float], list[tuple[float, float]]] = defaultdict(list)
-    for (u, v), cnt in list(edge_count.items()):
-        rev_cnt = edge_count.get((v, u), 0)
-        net = cnt - rev_cnt
-        if net > 0:
-            for _ in range(net):
-                adj[u].append(v)
-
-    loops: list[list[list[float]]] = []
-    while adj:
-        start = next(iter(adj))
-        ring = [start]
-        curr = start
-        while True:
-            nxt_list = adj.get(curr)
-            if not nxt_list:
-                break
-            nxt = nxt_list.pop()
-            if not nxt_list:
-                del adj[curr]
-            if nxt == start:
-                ring.append(start)
-                break
-            ring.append(nxt)
-            curr = nxt
-        if len(ring) >= 4:
-            simp: list[tuple[float, float]] = [ring[0]]
-            for i in range(1, len(ring) - 1):
-                p_prev = simp[-1]
-                p_curr = ring[i]
-                p_next = ring[i + 1]
-                cross = (p_curr[0] - p_prev[0]) * (p_next[1] - p_curr[1]) - (p_curr[1] - p_prev[1]) * (p_next[0] - p_curr[0])
-                if abs(cross) > 1e-9:
-                    simp.append(p_curr)
-            simp.append(ring[0])
-            if len(simp) >= 4:
-                loops.append([[p[0], p[1]] for p in simp])
-    return loops
-
-
-def _voronoi_partition_multipolygon(
-    mp_coords: list[list[list[list[float]]]],
-    target_id: str,
-    seeds: dict[str, tuple[float, float]],
-) -> list[list[list[list[float]]]]:
-    if target_id not in seeds:
-        return []
-    sx, sy = seeds[target_id]
-    clipped_pieces: list[list[tuple[float, float]]] = []
-    for poly in mp_coords:
-        if not poly:
-            continue
-        tris = _ear_clip_triangulate(poly[0])
-        for tri in tris:
-            curr = tri
-            for other_id, (ox, oy) in seeds.items():
-                if other_id == target_id:
-                    continue
-                a = ox - sx
-                b = oy - sy
-                if abs(a) < 1e-12 and abs(b) < 1e-12:
-                    continue
-                c = 0.5 * (ox * ox + oy * oy - sx * sx - sy * sy)
-                curr = _clip_poly_halfplane(curr, a, b, c)
-                if len(curr) < 3:
-                    break
-            if len(curr) >= 3 and abs(_signed_ring_area(curr)) > 1e-9:
-                clipped_pieces.append(curr)
-    loops = _dissolve_clipped_polygons(clipped_pieces)
-    return [[loop] for loop in loops]
-
-
 def build_admin_boundaries_geojson(root: Path = ROOT) -> dict[str, Any]:
-    """Generate authoritative WGS84 province & kabupaten boundary polygons (#3, #4).
+    """Load authoritative WGS84 province & kabupaten boundary polygons (#1, #3, #4).
 
-    Produces disjoint, hierarchical MultiPolygon boundaries (`data/admin-boundaries.geojson`)
-    covering all 38 Indonesian provinces and all authoritative kabupaten/kota so
-    FIRMS detections and map filters resolve deterministically by point-in-polygon.
+    Loads disjoint, hierarchical MultiPolygon boundaries (`data/admin-boundaries.geojson`)
+    covering all 38 Indonesian provinces and all authoritative kabupaten/kota with
+    authoritative BPS codes from official Kemendagri / BPS and BIG / GADM delineations.
     """
     global _CACHED_ADMIN_BOUNDARIES
     if _CACHED_ADMIN_BOUNDARIES is not None and root == ROOT:
         return _CACHED_ADMIN_BOUNDARIES
 
-    try:
-        from scripts.ingest_firms import build_region_geometries, load_boundary_geometry
-    except ImportError:
-        from ingest_firms import build_region_geometries, load_boundary_geometry
+    admin_path = root / "data" / "admin-boundaries.geojson"
+    if not admin_path.exists():
+        admin_path = ROOT / "data" / "admin-boundaries.geojson"
 
-    boundary_geom, _ = load_boundary_geometry(root / "data" / "kalimantan-indonesia.geojson")
-    region_geoms = build_region_geometries(boundary_geom)
-    # Include Bali coastal island polygon in bali-nusra (omitted by Natural Earth 1:110m simplification)
-    bali_island_ring = [
-        [114.43, -8.06],
-        [115.71, -8.06],
-        [115.71, -8.85],
-        [114.43, -8.85],
-        [114.43, -8.06],
-    ]
-    if "bali-nusra" in region_geoms:
-        region_geoms["bali-nusra"]["coordinates"] = list(region_geoms["bali-nusra"]["coordinates"]) + [[bali_island_ring]]
+    if admin_path.exists():
+        fc = read_json(admin_path, {"type": "FeatureCollection", "features": []})
+        for feat in fc.get("features") or []:
+            geom = feat.get("geometry")
+            if isinstance(geom, dict):
+                bbox = feat.get("properties", {}).get("bbox")
+                if bbox and "_bbox" not in geom:
+                    geom["_bbox"] = bbox
+        if root == ROOT:
+            _CACHED_ADMIN_BOUNDARIES = fc
+        return fc
 
-    regions_payload = read_json(root / "data" / "regions.json", {"regions": []})
-    kab_registry = build_authoritative_kabupaten_registry(root)
+    raise FileNotFoundError(f"Authoritative administrative boundaries missing at {admin_path}")
 
-    features: list[dict[str, Any]] = []
-    for r in regions_payload.get("regions") or []:
-        rid = str(r["id"])
-        provs = list(r.get("provinces") or [])
-        r_mp = (region_geoms.get(rid) or {}).get("coordinates") or []
-        prov_seeds = {p: PROVINCE_SEED_CENTROIDS[p] for p in provs if p in PROVINCE_SEED_CENTROIDS}
-
-        for p in provs:
-            p_code = PROVINCE_TO_BPS_CODE.get(p, "00")
-            p_mp = _voronoi_partition_multipolygon(r_mp, p, prov_seeds)
-            if not p_mp:
-                sx, sy = prov_seeds.get(p, (114.0, -2.0))
-                p_mp = [[[[sx - 0.15, sy - 0.15], [sx + 0.15, sy - 0.15], [sx + 0.15, sy + 0.15], [sx - 0.15, sy + 0.15], [sx - 0.15, sy - 0.15]]]]
-            p_geom = {"type": "MultiPolygon", "coordinates": p_mp}
-            p_bbox, p_cent = extract_geometry_bbox_and_centroid(p_geom)
-            if p_bbox:
-                p_geom["_bbox"] = p_bbox
-            features.append(
-                {
-                    "type": "Feature",
-                    "properties": {
-                        "id": f"prov:{p_code}",
-                        "level": "province",
-                        "bpsCode": p_code,
-                        "name": p,
-                        "province": p,
-                        "region": rid,
-                        "bbox": p_bbox,
-                        "centroid": p_cent,
-                    },
-                    "geometry": {"type": "MultiPolygon", "coordinates": p_mp},
-                }
-            )
-
-            # Partition province polygon into its authoritative kabupaten/kota polygons
-            kabs_in_prov = {
-                k: (float(info["seedLonLat"][0]), float(info["seedLonLat"][1]))
-                for k, info in kab_registry.items()
-                if info["province"] == p
-            }
-            if not kabs_in_prov:
-                continue
-            for k, k_seed in sorted(kabs_in_prov.items()):
-                k_info = kab_registry[k]
-                k_code = str(k_info["bpsCode"])
-                k_mp = _voronoi_partition_multipolygon(p_mp, k, kabs_in_prov) if len(kabs_in_prov) > 1 else p_mp
-                if not k_mp:
-                    kx, ky = k_seed
-                    k_mp = [[[[kx - 0.05, ky - 0.05], [kx + 0.05, ky - 0.05], [kx + 0.05, ky + 0.05], [kx - 0.05, ky + 0.05], [kx - 0.05, ky - 0.05]]]]
-                k_geom = {"type": "MultiPolygon", "coordinates": k_mp}
-                k_bbox, k_cent = extract_geometry_bbox_and_centroid(k_geom)
-                features.append(
-                    {
-                        "type": "Feature",
-                        "properties": {
-                            "id": f"kab:{k_code}",
-                            "level": "kabupaten",
-                            "bpsCode": k_code,
-                            "provinceBpsCode": p_code,
-                            "name": k,
-                            "kabupaten": k,
-                            "province": p,
-                            "region": rid,
-                            "bbox": k_bbox,
-                            "centroid": k_cent,
-                        },
-                        "geometry": {"type": "MultiPolygon", "coordinates": k_mp},
-                    }
-                )
-
-    fc = {
-        "type": "FeatureCollection",
-        "metadata": {
-            "schemaVersion": SCHEMA_VERSION,
-            "coverageId": "indonesia",
-            "generatedBy": "scripts/v2_contracts.py",
-            "description": "Hierarchical WGS84 administrative boundaries for 38 provinces and BPS-coded kabupaten/kota.",
-        },
-        "features": features,
-    }
-    if root == ROOT:
-        _CACHED_ADMIN_BOUNDARIES = fc
-    return fc
 
 
 def build_admin_index(root: Path = ROOT) -> dict[str, Any]:
@@ -2659,18 +2321,13 @@ def classify_point_admin(
     region_id: str,
     spatial_lookup: dict[str, Any],
 ) -> tuple[str | None, str | None]:
-    """Classify a WGS84 point (lon, lat) into (province, kabupaten) via point-in-polygon (#3)."""
+    """Classify a WGS84 point (lon, lat) into (province, kabupaten) via point-in-polygon (#1, #3)."""
     prov_candidates = spatial_lookup["provsByRegion"].get(region_id) or []
     matched_prov: str | None = None
     for p_name, p_geom, _ in prov_candidates:
         if point_in_geometry(lon, lat, p_geom):
             matched_prov = p_name
             break
-    if matched_prov is None and prov_candidates:
-        matched_prov = min(
-            prov_candidates,
-            key=lambda item: (lon - item[2][0]) ** 2 + (lat - item[2][1]) ** 2,
-        )[0]
 
     if not matched_prov:
         return None, None
@@ -2681,20 +2338,71 @@ def classify_point_admin(
         if point_in_geometry(lon, lat, k_geom):
             matched_kab = k_name
             break
-    if matched_kab is None and kab_candidates:
-        matched_kab = min(
-            kab_candidates,
-            key=lambda item: (lon - item[2][0]) ** 2 + (lat - item[2][1]) ** 2,
-        )[0]
 
     return matched_prov, matched_kab
+
+
+def evaluate_day_completeness(
+    date_str: str,
+    latest_detection_utc_iso: str | None,
+    is_latest_date: bool,
+    has_subsequent_date: bool,
+    reference_utc: datetime | None = None,
+    timezone_name: str = "UTC",
+) -> str:
+    """Determine day completeness using actual day boundaries and validated source coverage (#4).
+
+    Never marks a day complete based on an arbitrary magic hour like 21:00.
+    A day is complete only when:
+    1. The calendar day boundary has concluded in the relevant timezone (UTC or Asia/Jakarta).
+    2. Observations span through the conclusion of the day or subsequent date data exists.
+    Ongoing days or dates where observations cut off before day completion are marked 'partial'.
+    """
+    now_utc = (
+        reference_utc.astimezone(timezone.utc)
+        if isinstance(reference_utc, datetime)
+        else datetime.now(timezone.utc)
+    )
+    try:
+        day_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return "partial"
+
+    if timezone_name == "UTC":
+        end_of_day_utc = datetime(
+            day_date.year, day_date.month, day_date.day, 23, 59, 59, tzinfo=timezone.utc
+        )
+        if now_utc < end_of_day_utc:
+            return "partial"
+        if has_subsequent_date:
+            return "complete"
+        if latest_detection_utc_iso:
+            latest_dt = parse_iso_utc(latest_detection_utc_iso)
+            if latest_dt and latest_dt.date() == day_date and latest_dt.hour >= 23:
+                return "complete"
+        return "partial"
+    elif timezone_name == "Asia/Jakarta":
+        # Asia/Jakarta is UTC+7. Day date 23:59:59 WIB is day date 16:59:59 UTC.
+        end_of_wib_utc = datetime(
+            day_date.year, day_date.month, day_date.day, 16, 59, 59, tzinfo=timezone.utc
+        )
+        if now_utc < end_of_wib_utc:
+            return "partial"
+        if has_subsequent_date:
+            return "complete"
+        if latest_detection_utc_iso:
+            latest_dt = parse_iso_utc(latest_detection_utc_iso)
+            if latest_dt and latest_dt >= end_of_wib_utc:
+                return "complete"
+        return "partial"
+    return "complete"
 
 
 def build_hotspot_daily_history(
     root: Path = ROOT,
     existing_history: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build durable per-day national, regional, province, and kabupaten FIRMS history in UTC & WIB (#16, #17, #3).
+    """Build durable per-day national, regional, province, and kabupaten FIRMS history in UTC & WIB (#16, #17, #3, #4).
 
     - Deduplicates observations by observationId = platform|date|time|lat|lon across runs
       without collapsing distinct satellite passes (S-NPP, NOAA-20, NOAA-21).
@@ -2702,6 +2410,7 @@ def build_hotspot_daily_history(
       into `byProvince` and `byKabupaten` buckets so geographic filters synchronize map, KPIs, and charts.
     - Preserves historical daily aggregates from existing `data/hotspots/history.json`
       when older dates age out of the rolling 5-day NRT shard window.
+    - Evaluates completeness via true calendar day boundaries and validated observation coverage.
     """
     shard_root = root / "data" / "hotspots"
     manifest = read_json(shard_root / "manifest.json", {})
@@ -2785,16 +2494,24 @@ def build_hotspot_daily_history(
             if isinstance(prev_day, dict) and prev_day.get("date") and prev_day["date"] not in wib_dates_present:
                 wib_daily_map[str(prev_day["date"])] = prev_day
 
-    for d_str in utc_dates_present:
+    ref_now_utc = parse_iso_utc(firms_eval.get("lastSuccessfulSync")) or datetime.now(timezone.utc)
+
+    for idx_u, d_str in enumerate(utc_dates_present):
+        has_subsequent = idx_u < len(utc_dates_present) - 1
+        is_latest = (d_str == latest_utc_date)
+        day_comp = evaluate_day_completeness(
+            d_str,
+            latest_detection_utc_iso=m_meta.get("newestDetectionUtc"),
+            is_latest_date=is_latest,
+            has_subsequent_date=has_subsequent,
+            reference_utc=ref_now_utc,
+            timezone_name="UTC",
+        )
         utc_daily_map[d_str] = {
             "date": d_str,
             "timezone": "UTC",
             "todCutoff": latest_utc_tod,
-            "completeness": (
-                "partial"
-                if (d_str == latest_utc_date and latest_utc_tod < "2100")
-                else "complete"
-            ),
+            "completeness": day_comp,
             "validationStatus": "validated",
             "extractedAtUtc": firms_eval["lastSuccessfulSync"],
             "pipelineVersion": str(m_meta.get("pipelineVersion") or "4"),
@@ -2805,13 +2522,25 @@ def build_hotspot_daily_history(
         }
 
     for idx_w, d_str in enumerate(wib_dates_present):
-        # First WIB date starting after 00:00 WIB or last WIB date ending before 21:00 WIB is partial
-        is_edge_partial = (idx_w == 0 or idx_w == len(wib_dates_present) - 1)
+        has_subsequent_w = idx_w < len(wib_dates_present) - 1
+        is_edge_partial = (idx_w == 0)
+        day_comp_w = (
+            "partial"
+            if is_edge_partial
+            else evaluate_day_completeness(
+                d_str,
+                latest_detection_utc_iso=m_meta.get("newestDetectionUtc"),
+                is_latest_date=(d_str == latest_wib_date),
+                has_subsequent_date=has_subsequent_w,
+                reference_utc=ref_now_utc,
+                timezone_name="Asia/Jakarta",
+            )
+        )
         wib_daily_map[d_str] = {
             "date": d_str,
             "timezone": "Asia/Jakarta",
             "todCutoff": latest_wib_tod,
-            "completeness": "partial" if is_edge_partial else "complete",
+            "completeness": day_comp_w,
             "validationStatus": "validated",
             "extractedAtUtc": firms_eval["lastSuccessfulSync"],
             "pipelineVersion": str(m_meta.get("pipelineVersion") or "4"),
@@ -2873,7 +2602,7 @@ def build_hotspot_daily_history(
     utc_daily_sorted = [utc_daily_map[k] for k in sorted(utc_daily_map)]
     wib_daily_sorted = [wib_daily_map[k] for k in sorted(wib_daily_map)]
 
-    # Verify disjoint regional and provincial bucket invariants: national == sum(regions) == sum(provinces)
+    # Verify regional and provincial bucket invariants: national == sum(regions); sum(provinces) <= national
     for series in (utc_daily_sorted, wib_daily_sorted):
         for day_item in series:
             reg_sum = sum(day_item["regions"][r]["count"] for r in REGION_ORDER)
@@ -2883,9 +2612,9 @@ def build_hotspot_daily_history(
                 )
             if "byProvince" in day_item and day_item["byProvince"]:
                 prov_sum = sum(b["count"] for b in day_item["byProvince"].values())
-                if day_item["national"]["count"] != prov_sum:
+                if prov_sum > day_item["national"]["count"]:
                     raise ValueError(
-                        f"National count {day_item['national']['count']} != sum of disjoint provinces {prov_sum} on {day_item['date']}"
+                        f"Province sum {prov_sum} exceeds national count {day_item['national']['count']} on {day_item['date']}"
                     )
 
     return {
@@ -2952,6 +2681,9 @@ def _extract_filtered_bucket_count(
     if cf:
         return int((bucket.get("byConfidence") or {}).get(cf) or 0)
     return int(bucket.get("count") or 0)
+
+
+extract_bucket_filtered_count = _extract_filtered_bucket_count
 
 
 def compute_delta_metrics(current_val: int | float | None, previous_val: int | float | None) -> dict[str, Any]:

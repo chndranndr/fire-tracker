@@ -1040,6 +1040,25 @@ V2_JS_HELPERS = r"""
       };
     }
 
+    function extractBucketFilteredHotspotCount(bucket, platform, conf) {
+      if (!bucket) return 0;
+      var p = (platform || "").toUpperCase();
+      var c = (conf || "").toLowerCase();
+      if (p && c) {
+        if (bucket.byPlatformConfidence && bucket.byPlatformConfidence[p + "|" + c] != null) {
+          return Number(bucket.byPlatformConfidence[p + "|" + c] || 0);
+        }
+        return 0;
+      }
+      if (p) {
+        return Number((bucket.byPlatform && bucket.byPlatform[p]) || 0);
+      }
+      if (c) {
+        return Number((bucket.byConfidence && bucket.byConfidence[c]) || 0);
+      }
+      return Number(bucket.count || 0);
+    }
+
     function scopeHotspotCountForDate(date) {
       if (!date) return 0;
       if (state.kab || state.prov) {
@@ -1057,21 +1076,11 @@ V2_JS_HELPERS = r"""
             if (dayEntry && dayEntry.date === date) {
               if (state.kab) {
                 var kBucket = dayEntry.byKabupaten && dayEntry.byKabupaten[state.kab];
-                if (kBucket) {
-                  if (state.conf && kBucket.byConfidence) return Number(kBucket.byConfidence[state.conf] || 0);
-                  if (state.platform && kBucket.byPlatform) return Number(kBucket.byPlatform[state.platform] || 0);
-                  return Number(kBucket.count || 0);
-                }
-                return 0;
+                return extractBucketFilteredHotspotCount(kBucket, state.platform, state.conf);
               }
               if (state.prov) {
                 var pBucket = dayEntry.byProvince && dayEntry.byProvince[state.prov];
-                if (pBucket) {
-                  if (state.conf && pBucket.byConfidence) return Number(pBucket.byConfidence[state.conf] || 0);
-                  if (state.platform && pBucket.byPlatform) return Number(pBucket.byPlatform[state.platform] || 0);
-                  return Number(pBucket.count || 0);
-                }
-                return 0;
+                return extractBucketFilteredHotspotCount(pBucket, state.platform, state.conf);
               }
             }
           }
@@ -1080,6 +1089,19 @@ V2_JS_HELPERS = r"""
           return firmsForView().length;
         }
         return 0;
+      }
+      var hh = (typeof hotspotHistory !== "undefined" && hotspotHistory) ? hotspotHistory : window.hotspotHistory;
+      if (hh && Array.isArray(hh.utcDaily) && (state.conf || state.platform)) {
+        for (var i = 0; i < hh.utcDaily.length; i++) {
+          var dayEntry = hh.utcDaily[i];
+          if (dayEntry && dayEntry.date === date) {
+            if (state.region && state.region !== "indonesia") {
+              var rBucket = dayEntry.regions && dayEntry.regions[state.region];
+              return extractBucketFilteredHotspotCount(rBucket, state.platform, state.conf);
+            }
+            return extractBucketFilteredHotspotCount(dayEntry.national, state.platform, state.conf);
+          }
+        }
       }
       if (date === currentDate() && Array.isArray(firms) && firms.length > 0 && (state.conf || state.platform)) {
         return firmsForView().length;

@@ -52,9 +52,11 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/firms-history-store
-          if git ls-remote --exit-code --heads origin firms-history-data >/dev/null 2>&1; then
-            git fetch --depth=1 origin firms-history-data
-            git archive FETCH_HEAD | tar -x -C /tmp/firms-history-store
+          git fetch origin firms-history-data:refs/remotes/origin/firms-history-data || true
+          if git show-ref --verify --quiet refs/remotes/origin/firms-history-data; then
+            git worktree add -B firms-history-data /tmp/firms-history-store origin/firms-history-data
+          else
+            git worktree add --orphan -B firms-history-data /tmp/firms-history-store
           fi
 
       - name: Fetch and validate FIRMS
@@ -84,15 +86,13 @@ jobs:
           mkdir -p /tmp/firms-history-store/hotspots
           cp -f data/hotspots/history.json /tmp/firms-history-store/hotspots/history.json || true
           cp -f data/hotspots/manifest.json /tmp/firms-history-store/hotspots/manifest.json || true
-          REMOTE_URL="$(git config --get remote.origin.url)"
           cd /tmp/firms-history-store
-          git init -b firms-history-data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "chore(firms): persist durable multi-day hotspot history"
-            git push --force "$REMOTE_URL" HEAD:refs/heads/firms-history-data
+            git push origin firms-history-data
           fi
 
       - name: Configure GitHub Pages

@@ -387,6 +387,83 @@ class IngestFirmsTests(unittest.TestCase):
             self.assertTrue((ws_2 / "kalimantan" / "2026-08-20.json").exists())
             self.assertTrue((durable_dir / "kalimantan" / "2026-08-22.json").exists())
 
+    def test_validate_separates_rolling_window_from_historical_totals(self):
+        # Issue #2: A 5-day ingest batch (~180 points) must NOT be compared against cumulative historical count (67,478)
+        pts = (
+            [point("S-NPP") for _ in range(60)]
+            + [point("NOAA-20") for _ in range(60)]
+            + [point("NOAA-21") for _ in range(60)]
+        )
+        summary = {
+            p: {
+                "count": 60,
+                "newest": datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc),
+                "oldest": datetime(2026, 8, 22, 1, 0, tzinfo=timezone.utc),
+            }
+            for p in ("S-NPP", "NOAA-20", "NOAA-21")
+        }
+        previous_meta_with_history = {
+            "coverageId": "indonesia",
+            "count": 67478,
+            "historicalCount": 67478,
+            "rollingWindowCount": 200,
+            "historyPreserved": True,
+            "sourceCounts": {"S-NPP": 25000, "NOAA-20": 25000, "NOAA-21": 17478},
+            "rollingWindowSourceCounts": {"S-NPP": 70, "NOAA-20": 70, "NOAA-21": 60},
+        }
+        now = datetime(2026, 8, 22, 11, 0, tzinfo=timezone.utc)
+        # 180 is >= 200 * 0.75 (150), so this must NOT fail!
+        ingest_firms.validate(
+            pts, previous_meta_with_history, summary, BOUNDARY, REGION_GEOMETRIES, now
+        )
+
+        # But if the current batch drops below the retention threshold of the rolling window (e.g. 50 < 100), it rejects
+        dropped_pts = (
+            [point("S-NPP") for _ in range(15)]
+            + [point("NOAA-20") for _ in range(15)]
+            + [point("NOAA-21") for _ in range(20)]
+        )
+        dropped_summary = {
+            p: {
+                "count": len([pt for pt in dropped_pts if pt.get("platform") == p]),
+                "newest": datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc),
+                "oldest": datetime(2026, 8, 22, 1, 0, tzinfo=timezone.utc),
+            }
+            for p in ("S-NPP", "NOAA-20", "NOAA-21")
+        }
+        with self.assertRaises(ValueError) as ctx:
+            ingest_firms.validate(
+                dropped_pts, previous_meta_with_history, dropped_summary, BOUNDARY, REGION_GEOMETRIES, now
+            )
+        self.assertIn("previous rolling window", str(ctx.exception))
+
+    def test_summarize_day_points_evaluates_true_day_boundaries(self):
+        # Issue #4: Day completeness evaluates actual calendar day boundaries, never an arbitrary 21:00 cutoff
+        day_points = [
+            {
+                "observationId": "S-NPP|2026-08-22|2130|0.5|110.0",
+                "lat": 0.5,
+                "lon": 110.0,
+                "date": "2026-08-22",
+                "time": "2130",
+                "platform": "S-NPP",
+                "conf": "nominal",
+            }
+        ]
+        # Current time is 2026-08-22 22:00 UTC (day is still ongoing, even though time is > 21:00)
+        during_day = datetime(2026, 8, 22, 22, 0, tzinfo=timezone.utc)
+        summary_ongoing = ingest_firms.summarize_day_points(
+            day_points, is_latest_global_date=True, has_subsequent_date=False, now_utc=during_day
+        )
+        self.assertEqual(summary_ongoing["completeness"], "partial")
+
+        # After day concludes and subsequent date exists -> complete
+        after_day = datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc)
+        summary_concluded = ingest_firms.summarize_day_points(
+            day_points, is_latest_global_date=False, has_subsequent_date=True, now_utc=after_day
+        )
+        self.assertEqual(summary_concluded["completeness"], "complete")
+
 
 if __name__ == "__main__":
     unittest.main()

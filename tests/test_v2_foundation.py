@@ -664,6 +664,82 @@ class V2FoundationContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             v2.validate_time_series_contract(bad_interpolated_ispa)
 
+    def test_authoritative_bps_codes_and_real_administrative_boundaries(self):
+        # Issue #1: Authoritative BPS codes and real boundaries, never synthetic approximations
+        reg = v2.build_authoritative_kabupaten_registry()
+        self.assertGreaterEqual(len(reg), 450)
+        # Verify Kutai Timur is official BPS 6404 and Paser is official BPS 6401
+        self.assertEqual(reg["Kutai Timur"]["bpsCode"], "6404")
+        self.assertEqual(reg["Kutai Timur"]["provinceBpsCode"], "64")
+        self.assertEqual(reg["Paser"]["bpsCode"], "6401")
+        self.assertEqual(reg["Paser"]["provinceBpsCode"], "64")
+
+        # Every kabupaten must deterministically match bpsCode[:2] == provinceBpsCode
+        for kab_name, info in reg.items():
+            self.assertEqual(
+                info["bpsCode"][:2],
+                info["provinceBpsCode"],
+                f"Kabupaten {kab_name} BPS code {info['bpsCode']} does not match province {info['provinceBpsCode']}",
+            )
+
+        admin_fc = v2.build_admin_boundaries_geojson()
+        features = admin_fc.get("features") or []
+        self.assertGreater(len(features), 500)
+        prov_features = [f for f in features if f["properties"].get("level") == "province"]
+        self.assertEqual(len(prov_features), 38)
+        for pf in prov_features:
+            self.assertIn(pf["properties"]["quality"], ("AUTHORITATIVE_BPS_BIG", "AUTHORITATIVE_BPS_GADM"))
+            self.assertIn("Badan Pusat Statistik", pf["properties"]["source"])
+
+    def test_day_completeness_evaluates_actual_calendar_boundaries_not_magic_hours(self):
+        # Issue #4: Day completeness evaluates true day boundaries, not magic hour 21:00
+        # When reference time is 2026-08-27 21:30 UTC, the UTC day is still ongoing (< 23:59:59)
+        ref_during_day = datetime(2026, 8, 27, 21, 30, tzinfo=timezone.utc)
+        comp_ongoing = v2.evaluate_day_completeness(
+            "2026-08-27",
+            latest_detection_utc_iso="2026-08-27T19:00:00Z",
+            is_latest_date=True,
+            has_subsequent_date=False,
+            reference_utc=ref_during_day,
+            timezone_name="UTC",
+        )
+        self.assertEqual(comp_ongoing, "partial")
+
+        # When day has concluded and subsequent date exists
+        ref_next_day = datetime(2026, 8, 28, 4, 0, tzinfo=timezone.utc)
+        comp_concluded = v2.evaluate_day_completeness(
+            "2026-08-27",
+            latest_detection_utc_iso="2026-08-27T19:00:00Z",
+            is_latest_date=False,
+            has_subsequent_date=True,
+            reference_utc=ref_next_day,
+            timezone_name="UTC",
+        )
+        self.assertEqual(comp_concluded, "complete")
+
+    def test_extract_bucket_filtered_count_combines_platform_and_confidence(self):
+        # Issue #5: Combined platform and confidence filter uses byPlatformConfidence
+        bucket = {
+            "count": 100,
+            "byPlatform": {"NOAA-20": 60, "S-NPP": 40},
+            "byConfidence": {"nominal": 70, "high": 30},
+            "byPlatformConfidence": {
+                "NOAA-20|nominal": 45,
+                "NOAA-20|high": 15,
+                "S-NPP|nominal": 25,
+                "S-NPP|high": 15,
+            },
+        }
+        # Both platform and conf
+        self.assertEqual(v2.extract_bucket_filtered_count(bucket, platform="NOAA-20", conf="nominal"), 45)
+        self.assertEqual(v2.extract_bucket_filtered_count(bucket, platform="S-NPP", conf="high"), 15)
+        # Platform only
+        self.assertEqual(v2.extract_bucket_filtered_count(bucket, platform="NOAA-20"), 60)
+        # Conf only
+        self.assertEqual(v2.extract_bucket_filtered_count(bucket, conf="nominal"), 70)
+        # Unfiltered
+        self.assertEqual(v2.extract_bucket_filtered_count(bucket), 100)
+
 
 if __name__ == "__main__":
     unittest.main()
